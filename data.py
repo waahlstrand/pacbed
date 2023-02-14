@@ -41,3 +41,18 @@ def load_pacbed_dataset(path_data, number_of_samples, number_of_pixels):
                                                 output_types = (tf.float32, tf.float32))
 
     return dataset
+
+
+def split_dataset(dataset, dataset_size, proportions):
+
+    train_size = int(proportions['train'] * dataset_size)
+    val_size = int(proportions['val'] * dataset_size)
+    test_size = int(proportions['test'] * dataset_size)
+
+    # Create dataset divisions
+    train_dataset = dataset.take(train_size)
+    test_dataset = dataset.skip(train_size)
+    val_dataset = test_dataset.skip(test_size)
+    test_dataset = test_dataset.take(test_size)
+
+    return train_dataset, val_dataset, test_dataset

@@ -18,7 +18,7 @@ ETAS = [0.00, 0.25, 0.50, 0.75, 1.0]
 DATA_ROOT = Path("./data/")
 LOG_DIR   = Path("./logs/")
 RESULTS_DIR = Path("./results/")
-N_SAMPLES_TRAIN = 165
+N_SAMPLES_PER_SET = 165
 N_REPEAT = 10
 N_PIXELS = 1040
 
@@ -38,29 +38,41 @@ number_of_epochs = np.sum(number_of_epochs_vector)
 
 #%% Data
 # Increase size, shuffle, map augmentation, and finally batch
-files = DATA_ROOT.glob("*.bin")
+files = list(DATA_ROOT.rglob("*.bin"))
 
 # Load data from multiple files
-dataset = data.load_multiple_pacbed_datasets(files, N_SAMPLES_TRAIN, N_PIXELS)
+dataset = data.load_multiple_pacbed_datasets(files, N_SAMPLES_PER_SET, N_PIXELS)
 
 # Repeat data by a constant factor, increasing size
-dataset = dataset.repeat(N_REPEAT)
+dataset = dataset.repeat(N_REPEAT).shuffle(1000, reshuffle_each_iteration=False)
+dataset_size = len(list(files))*N_SAMPLES_PER_SET*N_REPEAT
 
-# Map augmentations to this dataset
-dataset = dataset.map(lambda x, y: (
-    processing.augment(x, 
-                        N_PIXELS, 
-                        N_CROP_PIXELS,
-                        ETAS
-                        ), 
-    processing.label(y)), 
-    num_parallel_calls = 32)
+#%%
+# Split dataset for validation and testing
+train, val, test = data.split_dataset(dataset, dataset_size, {'train': 0.7, 'val': 0.2, 'test': 0.1})
 
-# Shuffle and batch
-dataset = dataset.shuffle(1000, reshuffle_each_iteration=True)\
-                 .batch(batch_size_train)\
-                 .prefetch(prefetch_size)
+val = val.map(lambda x, y: (x,
+                processing.label(y)), 
+                num_parallel_calls = 32)\
+         .batch(batch_size_train)\
+         .prefetch(prefetch_size)
 
+test = test.batch(batch_size_train)\
+            .map(lambda x, y: (x,
+                processing.label(y)), 
+                num_parallel_calls = 32)\
+           .prefetch(prefetch_size)
+
+train = train.map(lambda x, y: (
+                processing.augment(x, 
+                                    N_PIXELS, 
+                                    N_CROP_PIXELS,
+                                    ETAS
+                                    ), 
+                processing.label(y)), 
+                num_parallel_calls = 32)\
+            .batch(batch_size_train)\
+            .prefetch(prefetch_size)
 
 #%% Logging
 path_losses = RESULTS_DIR / "losses.csv"
@@ -80,22 +92,25 @@ callback_learning_rate = tf.keras.callbacks.LearningRateScheduler(
     lambda epoch: learning_rate.schedule( epoch, log10_learning_rate_vector, number_of_epochs_vector)
     ) 
 
-# Fetch data
-# data_path     = DATA_ROOT / "data_6.85.bin"
-# dataset_train = data.load_pacbed_dataset(data_path, N_SAMPLES_TRAIN, N_PIXELS)
-dataset_train = dataset
-
 #%%
 sgd = tf.keras.optimizers.SGD(momentum = momentum, nesterov = nesterov)
 model = models.NaiveConvolutional(N_PIXELS)
 
 # Train model
-model.compile(loss = tf.keras.losses.mean_squared_error, optimizer = sgd)
-results = model.fit(dataset_train, 
-                        epochs = number_of_epochs, 
-                        shuffle = True,
-                        verbose = 1,
-                        callbacks = [ callback_learning_rate, callback_csv_logger, tensorboard_callback ])
+model.compile(
+    loss = tf.keras.losses.mean_squared_error, 
+    optimizer = sgd, 
+    run_eagerly=True)
+
+results = model.fit(train, 
+                    epochs = number_of_epochs, 
+                    # validation_data = val,
+                    verbose = 1,
+                    callbacks = [ 
+                        callback_learning_rate, 
+                        callback_csv_logger, 
+                        tensorboard_callback ],
+                    )
 
 
 # %%
