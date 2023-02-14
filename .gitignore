@@ -1,0 +1,13 @@
+# Folders
+__pycache__/
+code_magnus/
+data/
+logs/
+results/
+
+# File types
+*.bin
+*.png
+*.jpg
+*.jpeg
+*.txt
