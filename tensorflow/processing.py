@@ -2,9 +2,75 @@ import tensorflow as tf
 import tensorflow_addons as tfa
 import math as m
 from typing import *
+import keras_cv
 
 CROP_N_PIXELS = [616, 510, 420, 358, 266]
 PI = tf.constant(m.pi)
+
+
+class Normalize(keras_cv.layers.BaseImageAugmentationLayer):
+
+    def __init__(self, scaling="linear", *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.scaling = scaling
+
+    def augment_image(self, x: tf.Tensor, transformation=None, *args, **kwargs) -> tf.Tensor:
+
+        x = 0.25 * x / tf.math.reduce_mean( tf.math.abs(x) )
+
+        if self.scaling == "linear":
+            # Absolute value of intensity.
+            x = tf.math.abs(x)
+        else:
+            # Square root of absolute value of intensity.
+            x = tf.math.sqrt( tf.math.abs(x) )
+
+        return x
+    
+    # def augment_label(self, y: tf.Tensor, transformation=None, *args, **kwargs):
+
+    #     return tf.math.log(y)
+
+class AddNoise(keras_cv.layers.BaseImageAugmentationLayer):
+
+    def __init__(self, eta, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.eta = eta
+
+    def augment_image(self, x: tf.Tensor, transformation=None, *args, **kwargs):
+
+       x = add_noise(x, self.eta)
+
+       return x
+
+
+class Augment(tf.keras.layers.Layer):
+
+    def __init__(self, eta: float, crop: int, size: int, scaling="linear", *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.eta = eta
+        self.scaling = scaling
+        self.crop = crop
+
+        # half_crop = crop // 2
+        # self.cropping = (half_crop, half_crop)
+
+        self.layers = tf.keras.models.Sequential([
+            tf.keras.layers.RandomRotation(0.5),
+            tf.keras.layers.RandomFlip(),
+            tf.keras.layers.CenterCrop(height=crop, width=crop),
+            tf.keras.layers.Resizing(size, size),
+            AddNoise(eta=self.eta),
+            Normalize(scaling=self.scaling)
+        ])
+
+    def call(self, x: tf.Tensor):
+        
+        return self.layers(x)
+
 
 @tf.function
 def random_choice(x: tf.Tensor, k: int) -> tf.Tensor:
