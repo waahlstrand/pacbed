@@ -4,6 +4,8 @@ import torch.nn as nn
 from torchvision import transforms
 from torch.nn import functional as F
 import pytorch_lightning.loggers as pl_loggers
+from torchvision.models import resnet18
+
 class Normalize(nn.Module):
 
     def __init__(self, scaling="linear"):
@@ -142,6 +144,8 @@ class PACBED(pl.LightningModule):
             nn.Linear(64, 1),
         )
 
+        # self.model = resnet18(pretrained=False)
+
     def forward(self, x):
 
         return self.model(x)
@@ -157,7 +161,7 @@ class PACBED(pl.LightningModule):
         loss = F.mse_loss(y_hat, y)
 
         self.log("train_loss", loss)
-        if batch_idx % 10: # Log every 10 batches
+        if batch_idx % 10 and isinstance(self.trainer.logger, pl_loggers.TensorBoardLogger): # Log every 10 batches
             self.log_tb_images(x, y, y_hat, batch_idx)
 
         return loss
@@ -178,7 +182,7 @@ class PACBED(pl.LightningModule):
         y_preds = y_preds.cpu().detach().numpy()
          
          # Get tensorboard logger
-        tb_logger = None
+        tb_logger: pl_loggers.TensorBoardLogger = None
         for logger in self.trainer.loggers:
             if isinstance(logger, pl_loggers.TensorBoardLogger):
                 tb_logger = logger.experiment
