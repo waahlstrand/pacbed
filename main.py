@@ -17,7 +17,8 @@ def main():
     parser = argparse.ArgumentParser(description='Train a PACBED model')
 
     N_SAMPLES_PER_FILE  = 165
-    N_PIXELS            = 1040
+    N_PIXELS_ORIGINAL   = 1040
+    N_PIXELS_TARGET     = 256
     CROP                = 225
     ETA                 = 1
     FILES               = [""]
@@ -35,7 +36,8 @@ def main():
     BACKBONE            = 'resnet18'  
 
     parser.add_argument('--n_samples_per_file', type=int, default=N_SAMPLES_PER_FILE)
-    parser.add_argument('--n_pixels', type=int, default=N_PIXELS)
+    parser.add_argument('--n_pixels_original', type=int, default=N_PIXELS_ORIGINAL)
+    parser.add_argument('--n_pixels_target', type=int, default=N_PIXELS_TARGET)
     parser.add_argument('--crop', type=int, default=CROP)
     parser.add_argument('--eta', type=float, default=ETA)
     parser.add_argument('--files', type=str, nargs='+', default=FILES)
@@ -58,13 +60,13 @@ def main():
     torch.manual_seed(args.seed)
     start = time.time()
     
-    augmenter   = Augmenter(n_pixels=args.n_pixels, crop=args.crop, eta=args.eta)
+    augmenter   = Augmenter(n_pixels=args.n_pixels_target, crop=args.crop, eta=args.eta)
     logger      = CSVLogger("./logs", name="PACBED")
 
 
     
     # Create training set
-    train_set       = PACBEDDataset(files = args.files, n_samples = args.n_samples_per_file, n_pixels=args.n_pixels, transforms=augmenter)
+    train_set       = PACBEDDataset(files = args.files, n_samples = args.n_samples_per_file, n_pixels=args.n_pixels_original, transforms=augmenter)
     train_sampler   = RandomSampler(train_set, replacement=True, num_samples=args.n_samples)
     train_loader    = DataLoader(train_set, batch_size=args.batch_size, num_workers=args.n_workers, sampler=train_sampler, pin_memory=True)
 
@@ -75,7 +77,7 @@ def main():
         generate_test_dataset_into_directory(files = args.files, 
                                             target_dir = args.test_root, 
                                             n_samples = args.n_test, 
-                                            n_pixels=args.n_pixels, 
+                                            n_pixels=args.n_pixels_original, 
                                             n_samples_per_file=args.n_samples_per_file, 
                                             augmenter=augmenter,
                                             n_workers=args.n_workers)
@@ -84,7 +86,7 @@ def main():
     test_loader = DataLoader(test_set, batch_size=args.batch_size, num_workers=args.n_workers)
 
     # Define model
-    model       = PACBED(backbone=args.backbone, n_pixels=args.n_pixels, lr=args.lr)
+    model       = PACBED(backbone=args.backbone, n_pixels=args.n_pixels_original, lr=args.lr)
     
     torch.set_float32_matmul_precision('medium')
     trainer = pl.Trainer(accelerator=args.device, devices=args.n_devices, max_epochs=args.n_epochs, logger=logger)
