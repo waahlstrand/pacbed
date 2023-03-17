@@ -1,0 +1,22 @@
+name: torch
+channels: 
+  - conda-forge
+  - anaconda
+  - defaults
+  - pytorch
+  - nvidia
+dependencies:
+  - pip
+  - ipykernel
+  - matplotlib
+  - tqdm
+  - pytorch
+  - torchvision
+  - torchaudio 
+  - pytorch-cuda=11.6
+  - pytorch-lightning
+  - scikit-image
+  - pip:
+    - pydicom
+    - opencv-python
+    - tensorboard

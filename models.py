@@ -4,7 +4,8 @@ import torch.nn as nn
 from torchvision import transforms
 from torch.nn import functional as F
 import pytorch_lightning.loggers as pl_loggers
-from torchvision.models import resnet18
+import torchvision.models as models
+from skimage.draw import disk
 
 class Normalize(nn.Module):
 
@@ -72,11 +73,52 @@ class AddNoise(nn.Module):
         # print(x-input)
 
         return x
+
+
+class AnnulusOcclusion(nn.Module):
+
+    def __init__(self, n_pixels: int, invert: bool = False):
+
+        super().__init__()
+
+        self.invert = invert
+        self.n_pixels = n_pixels
+        self.mask   = torch.zeros((n_pixels, n_pixels), dtype=torch.uint8)
+
+    def occlude(self, input: torch.Tensor, invert: bool, max_radius_ratio: float = 0.7, min_radius_ratio: float = 0.2):
+
+        random_offset = torch.randint(-2, 0, (2,)).numpy() # Handle center not being... centered.
+        disk_center = (self.n_pixels // 2 + random_offset[0], self.n_pixels // 2 + random_offset[1])
+
+        max_radius = int((self.n_pixels // 2 - 1) * max_radius_ratio)
+        min_radius = int((self.n_pixels // 2 - 1) * min_radius_ratio)
+
+        large_radius = torch.randint(min_radius, max_radius, (1,)).item()
+        small_radius = torch.randint(0, large_radius, (1,)).item()
         
+        large_rr, large_cc = disk(disk_center, large_radius)
+        small_rr, small_cc = disk(disk_center, small_radius)
+
+        mask = self.mask
+
+        mask[large_rr, large_cc] = 1
+        mask[small_rr, small_cc] = 0
+
+        if self.invert:
+            y = (1-mask)*input[0,:,:]
+        else:
+            y = mask*input[0,:,:]
+
+        return y.view(input.shape)
+
+    def forward(self, x):
+
+        return self.occlude(x, self.invert)
+
 
 class Augmenter(nn.Module):
 
-    def __init__(self, n_pixels: int, crop: int, eta: float, scaling="linear"):
+    def __init__(self, n_pixels: int, crop: int, eta: float, scaling="linear", p_occlusion: float = 0.5):
 
         super().__init__()
 
@@ -91,7 +133,13 @@ class Augmenter(nn.Module):
             transforms.CenterCrop(crop),
             transforms.Resize(n_pixels),
             AddNoise(eta),
-            Normalize(scaling)
+            Normalize(scaling),
+            transforms.RandomApply([
+            transforms.RandomChoice([
+                AnnulusOcclusion(n_pixels, invert = False),
+                AnnulusOcclusion(n_pixels, invert = True)
+            ], p = [0.5, 0.5]),
+            ], p = p_occlusion)
    
         )
 
@@ -118,37 +166,58 @@ class ConvBlock(nn.Module):
 
         return x
 
+class CustomPACBEDBackbone(nn.Module):
+
+    def __init__(self, ):
+
+        super().__init__()
+
+        self.model = nn.Sequential(
+            ConvBlock(3, 16, 3),
+            *[ConvBlock(16*(2**i), 16*(2**(i+1)), 3) for i in range(7)],
+            nn.Flatten(),
+            nn.Linear(8192, 2048),
+            nn.ELU(),
+            nn.Linear(2048, 1024),
+            nn.ELU(),
+            nn.Linear(1024, 1),
+        )
+
+    def forward(self, x):
+            
+            return self.model(x)
 
 class PACBED(pl.LightningModule):
 
-    def __init__(self, n_pixels: int, lr: float = 1e-3):
+    def __init__(self, backbone: str, n_pixels: int, lr: float = 1e-3):
 
         super().__init__()
 
         self.n_pixels   = n_pixels
         self.lr         = lr
+        self.backbone   = backbone
+        self.save_hyperparameters()
 
-        self.model = nn.Sequential(
-            # augmenter,
-            ConvBlock(1, 16, 3),
-            *[ConvBlock(16*(2**i), 16*(2**(i+1)), 3) for i in range(2)],
-            nn.Flatten(),
-            nn.Linear(1048576, 256),
-            nn.ELU(),
-            nn.Linear(256, 192),
-            nn.ELU(),
-            nn.Linear(192, 128),
-            nn.ELU(),
-            nn.Linear(128, 64),
-            nn.ELU(),
-            nn.Linear(64, 1),
+        self.pre_conv = nn.Sequential(
+            nn.Conv2d(1, 3, 3, stride = 1, padding = 0),
+            nn.ReLU(),
         )
 
-        # self.model = resnet18(pretrained=False)
+        if backbone == "custom":
+            self.model = CustomPACBEDBackbone()
+        elif backbone == "efficientnet_b5":
+            self.model = models.efficientnet_b5(pretrained=False)
+            self.model.classifier[1] = nn.Linear(1280, 1)
+        elif backbone == "resnet34":
+            self.model = models.resnet34(pretrained=False)
+            n_features = self.model.fc.in_features
+            self.model.fc = nn.Linear(n_features, 1)
+        else:
+            raise ValueError("Backbone not implemented.")
 
     def forward(self, x):
 
-        return self.model(x)
+        return self.model(self.pre_conv(x))
     
     def configure_optimizers(self):
 
@@ -160,8 +229,8 @@ class PACBED(pl.LightningModule):
         y_hat = self(x)
         loss = F.mse_loss(y_hat, y)
 
-        self.log("train_loss", loss)
-        if batch_idx % 10 and isinstance(self.trainer.logger, pl_loggers.TensorBoardLogger): # Log every 10 batches
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        if batch_idx % 100 and isinstance(self.trainer.logger, pl_loggers.TensorBoardLogger): # Log every 100 batches
             self.log_tb_images(x, y, y_hat, batch_idx)
 
         return loss
@@ -172,7 +241,7 @@ class PACBED(pl.LightningModule):
         y_hat = self(x)
         loss = F.mse_loss(y_hat, y)
 
-        self.log("val_loss", loss)
+        self.log("val_loss", loss, on_epoch=True, prog_bar=True, logger=True)
         return loss
     
     def log_tb_images(self, x, y_trues, y_preds, batch_idx) -> None:
