@@ -6,6 +6,11 @@ from torch.nn import functional as F
 import pytorch_lightning.loggers as pl_loggers
 import torchvision.models as models
 from skimage.draw import disk
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+from typing import *
+
 
 class Normalize(nn.Module):
 
@@ -15,9 +20,11 @@ class Normalize(nn.Module):
 
         self.scaling = scaling
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
 
-        x = 0.25 * x / torch.mean(torch.abs(x))
+        # Randomly uniform scaling between 0.15 and 0.35
+        scale = torch.rand(1, device=x.device) * 0.2 + 0.15
+        x = scale * x / torch.mean(torch.abs(x))
 
         if self.scaling == "linear":
             # Absolute value of intensity.
@@ -36,13 +43,13 @@ class AddNoise(nn.Module):
 
         self.eta = eta
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
 
         return self.add_noise(x, self.eta)
 
-    def add_noise(self, input: torch.Tensor, eta):
+    def add_noise(self, x: torch.Tensor, eta: float):
 
-        device = input.device
+        device = x.device
 
         # Noise model parameters.
         c1_log_intensity    = torch.tensor(-7.60540384562294, device = device)
@@ -54,8 +61,8 @@ class AddNoise(nn.Module):
         c0_log_s_background = torch.tensor(12.448421647627, device = device)
 
         # Rescale intensity. It is assumed that before this operation, sum(x) = 1.
-        input = input + 1e-6
-        x = torch.exp(c1_log_intensity * eta + c0_log_intensity) * input
+        x = x + 1e-6
+        x = torch.exp(c1_log_intensity * eta + c0_log_intensity) * x
 
         # Add lognormal noise.
         log_x           = torch.log(x)
@@ -85,7 +92,7 @@ class AnnulusOcclusion(nn.Module):
         self.n_pixels = n_pixels
         self.mask   = torch.zeros((n_pixels, n_pixels), dtype=torch.uint8)
 
-    def occlude(self, input: torch.Tensor, invert: bool, max_radius_ratio: float = 0.7, min_radius_ratio: float = 0.2):
+    def occlude(self, x: torch.Tensor, invert: bool, max_radius_ratio: float = 0.7, min_radius_ratio: float = 0.2):
 
         random_offset = torch.randint(-2, 0, (2,)).numpy() # Handle center not being... centered.
         disk_center = (self.n_pixels // 2 + random_offset[0], self.n_pixels // 2 + random_offset[1])
@@ -104,40 +111,77 @@ class AnnulusOcclusion(nn.Module):
         mask[large_rr, large_cc] = 1
         mask[small_rr, small_cc] = 0
 
-        if self.invert:
-            y = (1-mask)*input[0,:,:]
+        if invert:
+            y = (1-mask)*x
         else:
-            y = mask*input[0,:,:]
+            y = mask*x
 
-        return y.view(input.shape)
+        return y.view(x.shape)
 
     def forward(self, x):
 
         return self.occlude(x, self.invert)
+    
+
+class CenterCropWithRandomOffset(nn.Module):
+
+    def __init__(self, n_pixels: int, crop: int, offset: float = 0.3):
+
+        super().__init__()
+
+        self.crop = crop
+        self.offset = offset
+        self.n_pixels = n_pixels
+
+    def forward(self, x: torch.Tensor):
+
+        # Randomly select a crop offset.
+        random_offset = torch.randint(-int(self.n_pixels * self.offset), int(self.n_pixels * self.offset), (2,))
+        crop_center = (self.crop + random_offset[0].item(), self.crop + random_offset[1].item())
+        cc = transforms.CenterCrop(crop_center)
+
+        # Crop.
+        y = cc(x)
+
+        return y
 
 
 class Augmenter(nn.Module):
 
-    def __init__(self, n_pixels: int, crop: int, eta: float, scaling="linear", p_occlusion: float = 0.5):
+    def __init__(self, 
+                 n_pixels_original: int, 
+                 n_pixels_target: int,
+                 crop: int, 
+                 eta: float, 
+                 scaling="linear", 
+                 translate: Union[float, Tuple[float, float]] = (0.05, 0.05),
+                 scale: Union[float, Tuple[float, float]] = (0.95, 1.05),
+                 offset: float = 0.05,
+                 p_occlusion: float = 0.5):
 
         super().__init__()
 
-        self.n_pixels = n_pixels
+        self.n_pixels_original = n_pixels_original
+        self.n_pixels_target = n_pixels_target
         self.crop = crop
         self.eta = eta
         self.scaling = scaling
+        self.translate = translate
+        self.scale = scale
+        self.offset = offset
 
         self.augment = nn.Sequential(
             transforms.RandomRotation(360),
             transforms.RandomHorizontalFlip(),
-            transforms.CenterCrop(crop),
-            transforms.Resize(n_pixels),
+            transforms.RandomAffine(degrees = 0, translate = translate, scale = scale, shear = 0),
+            CenterCropWithRandomOffset(n_pixels_original, crop, offset = offset),
+            transforms.Resize((n_pixels_target, n_pixels_target)),
             AddNoise(eta),
             Normalize(scaling),
             transforms.RandomApply([
             transforms.RandomChoice([
-                AnnulusOcclusion(n_pixels, invert = False),
-                AnnulusOcclusion(n_pixels, invert = True)
+                AnnulusOcclusion(n_pixels_target, invert = False),
+                AnnulusOcclusion(n_pixels_target, invert = True)
             ], p = [0.5, 0.5]),
             ], p = p_occlusion)
    
@@ -172,12 +216,13 @@ class CustomPACBEDBackbone(nn.Module):
 
         super().__init__()
 
+        self.height = 256
+        self.width = 256
+
         self.model = nn.Sequential(
             ConvBlock(3, 16, 3),
-            *[ConvBlock(16*(2**i), 16*(2**(i+1)), 3) for i in range(7)],
+            *[ConvBlock(16*(2**i), 16*(2**(i+1)), 3) for i in range(5)],
             nn.Flatten(),
-            nn.Linear(8192, 2048),
-            nn.ELU(),
             nn.Linear(2048, 1024),
             nn.ELU(),
             nn.Linear(1024, 1),
@@ -223,45 +268,49 @@ class PACBED(pl.LightningModule):
 
         return torch.optim.Adam(self.model.parameters(), lr=self.lr)
     
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch: torch.Tensor, batch_idx: int):
 
         x, y = batch
         y_hat = self(x)
         loss = F.mse_loss(y_hat, y)
 
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        if batch_idx % 100 and isinstance(self.trainer.logger, pl_loggers.TensorBoardLogger): # Log every 100 batches
-            self.log_tb_images(x, y, y_hat, batch_idx)
 
         return loss
     
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch: torch.Tensor, batch_idx: int):
 
         x, y = batch
         y_hat = self(x)
         loss = F.mse_loss(y_hat, y)
 
-        self.log("val_loss", loss, on_epoch=True, prog_bar=True, logger=True)
+        # Log validation loss
+        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        # Log images
+        if batch_idx % 50 == 0:
+            self.log_image_w_predictions(x, y, y_hat, batch_idx)
+
         return loss
-    
-    def log_tb_images(self, x, y_trues, y_preds, batch_idx) -> None:
 
-        x = x.cpu().detach().numpy()
-        y_trues = y_trues.cpu().detach().numpy()
-        y_preds = y_preds.cpu().detach().numpy()
-         
-         # Get tensorboard logger
-        tb_logger: pl_loggers.TensorBoardLogger = None
-        for logger in self.trainer.loggers:
-            if isinstance(logger, pl_loggers.TensorBoardLogger):
-                tb_logger = logger.experiment
-                break
+    def log_image_w_predictions(self, x: torch.Tensor, y_true: torch.Tensor, y_pred: torch.Tensor, batch_idx: int) -> None:
 
-        if tb_logger is None:
-                raise ValueError('TensorBoard Logger not found')
-       
-        # Log the images (Give them different names)
-        for img_idx, (image, y_true, y_pred) in enumerate(zip(x, y_trues, y_preds)):
-            tb_logger.add_image(f"Image/{batch_idx}_{img_idx}/{y_true[0]}_{y_pred[0]}", image, 0)
-            # tb_logger.add_image(f"GroundTruth/{batch_idx}_{img_idx}", y_true, 0)
-            # tb_logger.add_image(f"Prediction/{batch_idx}_{img_idx}", y_pred, 0)
+        x       = x.cpu().detach().numpy()
+        y_true  = y_true.cpu().detach().numpy()
+        y_pred  = y_pred.cpu().detach().numpy()
+
+
+        # Random image
+        i = np.random.randint(0, x.shape[0])
+        img = x[i, 0, :, :]
+
+        # Plot
+        fig, ax = plt.subplots(1, 1, figsize = (5, 5))
+        ax.imshow(img.squeeze(), cmap = "gray")
+        ax.set_title(f"d={np.exp(y_true[i,0]):.1f} | y={y_true[i, 0]:.3f} | ŷ={y_pred[i, 0]:.3f}")
+        ax.axis("off")
+
+        if not os.path.exists(f"{self.logger.log_dir}/images"):
+            os.mkdir(f"{self.logger.log_dir}/images")
+
+        plt.savefig(f"{self.logger.log_dir}/images/epoch_{self.current_epoch}__batch__{batch_idx}__{int(np.exp(y_true[i,0]))}.png")

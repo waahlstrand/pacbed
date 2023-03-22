@@ -11,3 +11,7 @@ results/
 *.jpg
 *.jpeg
 *.txt
+*.ckpt
+*:Zone.Identifier
+*.pyc
+*.csv
