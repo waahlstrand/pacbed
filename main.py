@@ -87,10 +87,10 @@ def main():
     train_sampler   = RandomSampler(train_set, replacement=True, num_samples=args.n_samples)
     train_loader    = DataLoader(train_set, batch_size=args.batch_size, num_workers=args.n_workers, sampler=train_sampler, pin_memory=True)
 
-    validation_sampler          = RandomSampler(train_set, replacement=True, num_samples=N_VALIDATION)
-    validation_initial_loader   = DataLoader(train_set, batch_size=BATCH_SIZE, num_workers=N_WORKERS, sampler=validation_sampler, pin_memory=True)
+    validation_sampler          = RandomSampler(train_set, replacement=True, num_samples=args.n_validation)
+    validation_initial_loader   = DataLoader(train_set, batch_size=args.batch_size, num_workers=args.n_workers, sampler=validation_sampler, pin_memory=True)
     validation_set              = InMemoryPACBEDDataset.from_dataloader(validation_initial_loader)
-    validation_loader           = DataLoader(validation_set, batch_size=BATCH_SIZE, num_workers=N_WORKERS, pin_memory=True, shuffle=True)
+    validation_loader           = DataLoader(validation_set, batch_size=args.batch_size, num_workers=args.n_workers, pin_memory=True, shuffle=True)
 
     # Create test set
     # If test set does not exist, create it
