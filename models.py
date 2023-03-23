@@ -284,33 +284,43 @@ class PACBED(pl.LightningModule):
         y_hat = self(x)
         loss = F.mse_loss(y_hat, y)
 
-        # Log validation loss
+        return {"loss": loss, "x": x, "y_true": y, "y_pred": y_hat}
+    
+    def validation_epoch_end(self, outputs) -> None:
+        
+        loss = torch.stack([l['loss'] for l in outputs]).mean()
+
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
-        # Log images
-        if batch_idx % 50 == 0:
-            self.log_image_w_predictions(x, y, y_hat, batch_idx)
+        x = torch.cat([_['x'] for _ in outputs])
+        y_true = torch.cat([_['y_true'] for _ in outputs])
+        y_pred = torch.cat([_['y_pred'] for _ in outputs])
 
-        return loss
+        # Sample 4 random indices
+        # and select corresponding images with true and predicted labels
+        idx = np.random.choice(x.shape[0], 4, replace = False)
+        x = x[idx]
+        y_true = y_true[idx]
+        y_pred = y_pred[idx]
 
-    def log_image_w_predictions(self, x: torch.Tensor, y_true: torch.Tensor, y_pred: torch.Tensor, batch_idx: int) -> None:
+        self.log_image_w_predictions(x, y_true, y_pred)
+
+
+    def log_image_w_predictions(self, x: torch.Tensor, y_true: torch.Tensor, y_pred: torch.Tensor) -> None:
 
         x       = x.cpu().detach().numpy()
         y_true  = y_true.cpu().detach().numpy()
         y_pred  = y_pred.cpu().detach().numpy()
 
-
         # Random image
-        i = np.random.randint(0, x.shape[0])
-        img = x[i, 0, :, :]
-
-        # Plot
-        fig, ax = plt.subplots(1, 1, figsize = (5, 5))
-        ax.imshow(img.squeeze(), cmap = "gray")
-        ax.set_title(f"d={np.exp(y_true[i,0]):.1f} | y={y_true[i, 0]:.3f} | ŷ={y_pred[i, 0]:.3f}")
-        ax.axis("off")
+        # Plot a 2x2 grid of images x
+        fig, ax = plt.subplots(2, 2, figsize = (10, 10))
+        for i in range(4):
+            ax[i//2, i%2].imshow(x[i,0], cmap = "gray")
+            ax[i//2, i%2].set_title(f"d={np.exp(y_true[i,0]):.1f} | y={y_true[i, 0]:.3f} | ŷ={y_pred[i, 0]:.3f}")
+            ax[i//2, i%2].axis("off")
 
         if not os.path.exists(f"{self.logger.log_dir}/images"):
             os.mkdir(f"{self.logger.log_dir}/images")
 
-        plt.savefig(f"{self.logger.log_dir}/images/epoch_{self.current_epoch}__batch__{batch_idx}__{int(np.exp(y_true[i,0]))}.png")
+        plt.savefig(f"{self.logger.log_dir}/images/epoch_{self.current_epoch}.png")
