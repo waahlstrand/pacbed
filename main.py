@@ -39,6 +39,7 @@ def main():
     N_EPOCHS            = 100
     BACKBONE            = 'resnet34'
     LOG_DIR             = './logs'
+    P_OCCLUSION         = 0.4
 
     parser.add_argument('--n_samples_per_file', type=int, default=N_SAMPLES_PER_FILE)
     parser.add_argument('--n_pixels_original', type=int, default=N_PIXELS_ORIGINAL)
@@ -59,6 +60,7 @@ def main():
     parser.add_argument('--n_epochs', type=int, default=N_EPOCHS)
     parser.add_argument('--backbone', type=str, default=BACKBONE)
     parser.add_argument('--log_dir', type=str, default=LOG_DIR)
+    parser.add_argument('--p_occlusion', type=float, default=P_OCCLUSION)
 
 
     args = parser.parse_args()
@@ -69,12 +71,22 @@ def main():
     # Human readable time
     name = time.strftime("%Y%m%d-%H%M%S")
     
-    augmenter = Augmenter(
+    train_augmenter = Augmenter(
         n_pixels_original=args.n_pixels_original, 
         n_pixels_target=args.n_pixels_target, 
         crop=args.crop, 
         eta=args.eta,
-        translate=(0.01, 0.01)
+        translate=(0.01, 0.01),
+        p_occlusion=args.p_occlusion
+        )
+    
+    val_augmenter = Augmenter(
+        n_pixels_original=args.n_pixels_original, 
+        n_pixels_target=args.n_pixels_target, 
+        crop=args.crop, 
+        eta=args.eta,
+        translate=(0.01, 0.01),
+        p_occlusion=0
         )
 
     logger     = CSVLogger(args.log_dir, name="PACBED")
@@ -83,12 +95,13 @@ def main():
 
     
     # Create training set
-    train_set       = PACBEDDataset(files = args.files, n_samples = args.n_samples_per_file, n_pixels=args.n_pixels_original, transforms=augmenter)
+    train_set       = PACBEDDataset(files = args.files, n_samples = args.n_samples_per_file, n_pixels=args.n_pixels_original, transforms=train_augmenter)
     train_sampler   = RandomSampler(train_set, replacement=True, num_samples=args.n_samples)
     train_loader    = DataLoader(train_set, batch_size=args.batch_size, num_workers=args.n_workers, sampler=train_sampler, pin_memory=True)
 
-    validation_sampler          = RandomSampler(train_set, replacement=True, num_samples=args.n_validation)
-    validation_initial_loader   = DataLoader(train_set, batch_size=args.batch_size, num_workers=args.n_workers, sampler=validation_sampler, pin_memory=True)
+    validation_initial_set      = PACBEDDataset(files = args.files, n_samples = args.n_samples_per_file, n_pixels=args.n_pixels_original, transforms=val_augmenter)
+    validation_sampler          = RandomSampler(validation_initial_set, replacement=True, num_samples=args.n_validation)
+    validation_initial_loader   = DataLoader(validation_initial_set, batch_size=args.batch_size, num_workers=args.n_workers, sampler=validation_sampler, pin_memory=True)
     validation_set              = InMemoryPACBEDDataset.from_dataloader(validation_initial_loader)
     validation_loader           = DataLoader(validation_set, batch_size=args.batch_size, num_workers=args.n_workers, pin_memory=True, shuffle=True)
 

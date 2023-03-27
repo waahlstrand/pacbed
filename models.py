@@ -92,7 +92,7 @@ class AnnulusOcclusion(nn.Module):
         self.n_pixels = n_pixels
         self.mask   = torch.zeros((n_pixels, n_pixels), dtype=torch.uint8)
 
-    def occlude(self, x: torch.Tensor, invert: bool, max_radius_ratio: float = 0.7, min_radius_ratio: float = 0.2):
+    def occlude(self, x: torch.Tensor, invert: bool, max_radius_ratio: float = 0.6, min_radius_ratio: float = 0.1):
 
         random_offset = torch.randint(-2, 0, (2,)).numpy() # Handle center not being... centered.
         disk_center = (self.n_pixels // 2 + random_offset[0], self.n_pixels // 2 + random_offset[1])
@@ -157,7 +157,7 @@ class Augmenter(nn.Module):
                  translate: Union[float, Tuple[float, float]] = (0.05, 0.05),
                  scale: Union[float, Tuple[float, float]] = (0.95, 1.05),
                  offset: float = 0.05,
-                 p_occlusion: float = 0.5):
+                 p_occlusion: float = 0.4):
 
         super().__init__()
 
@@ -225,7 +225,11 @@ class CustomPACBEDBackbone(nn.Module):
             nn.Flatten(),
             nn.Linear(2048, 1024),
             nn.ELU(),
-            nn.Linear(1024, 1),
+            nn.Linear(1024, 512),
+            nn.ELU(),
+            nn.Linear(512, 256),
+            nn.ELU(),
+            nn.Linear(256, 1),
         )
 
     def forward(self, x):
@@ -250,11 +254,11 @@ class PACBED(pl.LightningModule):
 
         if backbone == "custom":
             self.model = CustomPACBEDBackbone()
-        elif backbone == "efficientnet_b5":
-            self.model = models.efficientnet_b5(pretrained=False)
+        elif backbone == "efficientnet_b1":
+            self.model = models.efficientnet_b1(pretrained=False)
             self.model.classifier[1] = nn.Linear(1280, 1)
-        elif backbone == "resnet34":
-            self.model = models.resnet34(pretrained=False)
+        elif backbone == "resnet50":
+            self.model = models.resnet50(pretrained=False)
             n_features = self.model.fc.in_features
             self.model.fc = nn.Linear(n_features, 1)
         else:
