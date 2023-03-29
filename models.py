@@ -238,12 +238,13 @@ class CustomPACBEDBackbone(nn.Module):
 
 class PACBED(pl.LightningModule):
 
-    def __init__(self, backbone: str, n_pixels: int, lr: float = 1e-3):
+    def __init__(self, backbone: str, n_pixels: int, lr: float = 1e-3, momentum: float = 0.99):
 
         super().__init__()
 
         self.n_pixels   = n_pixels
         self.lr         = lr
+        self.momentum   = momentum
         self.backbone   = backbone
         self.save_hyperparameters()
 
@@ -270,7 +271,8 @@ class PACBED(pl.LightningModule):
     
     def configure_optimizers(self):
 
-        return torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        # return torch.optim.Adam(self.model.parameters(), lr=self.lr)
+        return torch.optim.SGD(self.model.parameters(), lr=self.lr, momentum=self.momentum)
     
     def training_step(self, batch: torch.Tensor, batch_idx: int):
 
@@ -278,7 +280,7 @@ class PACBED(pl.LightningModule):
         y_hat = self(x)
         loss = F.mse_loss(y_hat, y)
 
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("train_loss", loss.detach().item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return loss
     
@@ -294,7 +296,7 @@ class PACBED(pl.LightningModule):
         
         loss = torch.stack([l['loss'] for l in outputs]).mean()
 
-        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("val_loss", loss.detach().item(), on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
         x = torch.cat([_['x'] for _ in outputs])
         y_true = torch.cat([_['y_true'] for _ in outputs])

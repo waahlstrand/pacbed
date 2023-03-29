@@ -33,6 +33,7 @@ def main():
     N_TEST              = int(1e2)
     N_VALIDATION        = int(1e2 * BATCH_SIZE)
     LR                  = 1e-4
+    MOMENTUM            = 0.99
     SEED                = 42
     DEVICE              = 'gpu'
     N_DEVICES           = 1
@@ -54,6 +55,7 @@ def main():
     parser.add_argument('--n_test', type=int, default=N_TEST)
     parser.add_argument('--n_validation', type=int, default=N_VALIDATION)
     parser.add_argument('--lr', type=float, default=LR)
+    parser.add_argument('--momentum', type=float, default=MOMENTUM)
     parser.add_argument('--seed', type=int, default=SEED)
     parser.add_argument('--device', type=str, default=DEVICE)
     parser.add_argument('--n_devices', type=str, default=N_DEVICES)
@@ -90,6 +92,7 @@ def main():
         )
 
     logger     = CSVLogger(args.log_dir, name="PACBED")
+    # tb_logger  = TensorBoardLogger(args.log_dir, name="PACBED")
     model_dir  = logger.log_dir + "/checkpoints"
     checkpoint = ModelCheckpoint(model_dir, monitor='val_loss', save_top_k=2, mode='min')
 
@@ -121,14 +124,14 @@ def main():
     # test_loader = DataLoader(test_set, batch_size=args.batch_size, num_workers=args.n_workers)
 
     # Define model
-    model       = PACBED(backbone=args.backbone, n_pixels=args.n_pixels_original, lr=args.lr)
+    model       = PACBED(backbone=args.backbone, n_pixels=args.n_pixels_original, lr=args.lr, momentum=args.momentum)
     
     torch.set_float32_matmul_precision('medium')
     trainer = pl.Trainer(
         accelerator=args.device, 
         devices=args.n_devices, 
         max_epochs=args.n_epochs, 
-        logger=logger,
+        logger=[logger],
         callbacks=[checkpoint])
     
     # Train model
