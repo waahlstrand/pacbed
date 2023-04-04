@@ -63,6 +63,7 @@ def main():
     parser.add_argument('--backbone', type=str, default=BACKBONE)
     parser.add_argument('--log_dir', type=str, default=LOG_DIR)
     parser.add_argument('--p_occlusion', type=float, default=P_OCCLUSION)
+    parser.add_argument('--checkpoint', type=str, default='')
 
 
     args = parser.parse_args()
@@ -125,7 +126,7 @@ def main():
 
     # Define model
     model       = PACBED(backbone=args.backbone, n_pixels=args.n_pixels_original, lr=args.lr, momentum=args.momentum)
-    
+
     torch.set_float32_matmul_precision('medium')
     trainer = pl.Trainer(
         accelerator=args.device, 
@@ -134,10 +135,16 @@ def main():
         logger=[logger],
         callbacks=[checkpoint])
     
-    # Train model
-    trainer.fit(model, 
-                train_dataloaders=train_loader, 
-                val_dataloaders=validation_loader)
+    if args.checkpoint != '':
+        trainer.fit(model, 
+                    train_dataloaders=train_loader, 
+                    val_dataloaders=validation_loader,
+                    resume_from_checkpoint=args.checkpoint)
+    else:
+        # Train model
+        trainer.fit(model, 
+                    train_dataloaders=train_loader, 
+                    val_dataloaders=validation_loader)
     
     trainer.save_checkpoint(f"{model_dir}/{name}_final.ckpt")
 
