@@ -139,7 +139,7 @@ def main():
         trainer.fit(model, 
                     train_dataloaders=train_loader, 
                     val_dataloaders=validation_loader,
-                    resume_from_checkpoint=args.checkpoint)
+                    ckpt_path=args.checkpoint)
     else:
         # Train model
         trainer.fit(model, 
