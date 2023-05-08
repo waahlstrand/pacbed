@@ -1,3 +1,5 @@
+from typing import Any, Optional
+from pytorch_lightning.utilities.types import STEP_OUTPUT
 import torch
 import pytorch_lightning as pl
 import torch.nn as nn
@@ -10,6 +12,34 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 from typing import *
+import utils
+
+class RadialNormalization(nn.Module):
+
+    def __init__(self, n_pixels_original: int, n_pixels_target: int) -> None:
+        super().__init__()
+
+        self.n_pixels_original = n_pixels_original
+        self.n_pixels_target = n_pixels_target
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        
+        # TODO
+        R2 = 1
+    
+        a = torch.pow(10, -7 + 2 * torch.rand(1, device=x.device))
+        b = (5 + 95 * torch.rand(1, device=x.device)) * (self.n_pixels_target / self.n_pixels_original)
+
+        p = torch.rand()
+
+        if p > 0.5:
+
+            x = x + a * torch.exp(R2/b**2)
+        else:
+            x = x + a * (1-torch.exp(-R2/b**2))
+
+
+        return x
 
 
 class Normalize(nn.Module):
@@ -178,6 +208,7 @@ class Augmenter(nn.Module):
             transforms.Resize((n_pixels_target, n_pixels_target)),
             AddNoise(eta),
             Normalize(scaling),
+            # RadialNormalization(n_pixels_original, n_pixels_target),
             transforms.RandomApply([
             transforms.RandomChoice([
                 AnnulusOcclusion(n_pixels_target, invert = False),
@@ -246,7 +277,7 @@ class PACBED(pl.LightningModule):
         self.lr         = lr
         self.momentum   = momentum
         self.backbone   = backbone
-        self.save_hyperparameters()
+        self.save_hyperparameters('n_pixels', 'lr', 'momentum', 'backbone')
 
         self.pre_conv = nn.Sequential(
             nn.Conv2d(1, 3, 3, stride = 1, padding = 0),
@@ -302,6 +333,8 @@ class PACBED(pl.LightningModule):
         y_true = torch.cat([_['y_true'] for _ in outputs])
         y_pred = torch.cat([_['y_pred'] for _ in outputs])
 
+        self.log_validation_scatter(y_true, y_pred)
+
         # Sample 4 random indices
         # and select corresponding images with true and predicted labels
         idx = np.random.choice(x.shape[0], 4, replace = False)
@@ -309,7 +342,38 @@ class PACBED(pl.LightningModule):
         y_true = y_true[idx]
         y_pred = y_pred[idx]
 
-        self.log_image_w_predictions(x, y_true, y_pred)
+        if self.current_epoch % 50 == 0:
+            self.log_image_w_predictions(x, y_true, y_pred)
+
+    def test_step(self, batch: torch.Tensor, batch_idx: int):
+    
+        x, y = batch
+        y_hat = self(x)
+        loss = F.mse_loss(y_hat, y)
+
+        return {"loss": loss, "x": x, "y_true": y, "y_pred": y_hat}
+    
+    def test_epoch_end(self, outputs) -> None:
+
+        #x = torch.cat([_['x'] for _ in outputs])
+        y_true = torch.cat([_['y_true'] for _ in outputs])
+        y_pred = torch.cat([_['y_pred'] for _ in outputs])
+
+        self.log_validation_scatter(y_true, y_pred)
+
+
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        return self(batch)
+        
+
+    def log_validation_scatter(self, y_true: torch.Tensor, y_pred: torch.Tensor) -> None:
+
+        fig, ax, ax_histx, ax_histy = utils.scatter_hist(
+            y_true.cpu().detach().exp().numpy(), 
+            y_pred.cpu().detach().exp().numpy()
+        )
+
+        fig.savefig(f"{self.logger.log_dir}/images/scatter/epoch_{self.current_epoch}.png")
 
 
     def log_image_w_predictions(self, x: torch.Tensor, y_true: torch.Tensor, y_pred: torch.Tensor) -> None:

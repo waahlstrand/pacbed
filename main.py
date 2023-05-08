@@ -12,6 +12,7 @@ import argparse
 import warnings
 import time
 import matplotlib
+import utils
 matplotlib.use('Agg')
 
 warnings.filterwarnings("ignore")
@@ -64,7 +65,8 @@ def main():
     parser.add_argument('--log_dir', type=str, default=LOG_DIR)
     parser.add_argument('--p_occlusion', type=float, default=P_OCCLUSION)
     parser.add_argument('--checkpoint', type=str, default='')
-
+    parser.add_argument('--exp_dir', type=str, required=True)
+    parser.add_argument('--exp_cfg', type=str, required=True)
 
     args = parser.parse_args()
 
@@ -93,7 +95,6 @@ def main():
         )
 
     logger     = CSVLogger(args.log_dir, name="PACBED")
-    # tb_logger  = TensorBoardLogger(args.log_dir, name="PACBED")
     model_dir  = logger.log_dir + "/checkpoints"
     checkpoint = ModelCheckpoint(model_dir, monitor='val_loss', save_top_k=2, mode='min')
 
@@ -103,26 +104,23 @@ def main():
     train_sampler   = RandomSampler(train_set, replacement=True, num_samples=args.n_samples)
     train_loader    = DataLoader(train_set, batch_size=args.batch_size, num_workers=args.n_workers, sampler=train_sampler, pin_memory=True)
 
-    validation_initial_set      = PACBEDDataset(files = args.files, n_samples = args.n_samples_per_file, n_pixels=args.n_pixels_original, transforms=val_augmenter)
-    validation_sampler          = RandomSampler(validation_initial_set, replacement=True, num_samples=args.n_validation)
-    validation_initial_loader   = DataLoader(validation_initial_set, batch_size=args.batch_size, num_workers=args.n_workers, sampler=validation_sampler, pin_memory=True)
+    # Create a distribution of realistically augmented images (no occlusion, et c.)
+    realistic_set           = PACBEDDataset(files = args.files, n_samples = args.n_samples_per_file, n_pixels=args.n_pixels_original, transforms=val_augmenter)
+    
+    # Create a validation set
+    validation_sampler          = RandomSampler(realistic_set, replacement=True, num_samples=args.n_validation)
+    validation_initial_loader   = DataLoader(realistic_set, batch_size=args.batch_size, num_workers=args.n_workers, sampler=validation_sampler, pin_memory=True)
     validation_set              = InMemoryPACBEDDataset.from_dataloader(validation_initial_loader)
     validation_loader           = DataLoader(validation_set, batch_size=args.batch_size, num_workers=args.n_workers, pin_memory=True, shuffle=True)
 
-    # Create test set
-    # If test set does not exist, create it
-    # if not Path(TEST_ROOT).exists():
+    # Create a test set
+    test_sampler          = RandomSampler(realistic_set, replacement=True, num_samples=args.n_test)
+    test_initial_loader   = DataLoader(realistic_set, batch_size=args.batch_size, num_workers=args.n_workers, sampler=test_sampler, pin_memory=True)
+    test_set              = InMemoryPACBEDDataset.from_dataloader(test_initial_loader)
+    test_loader           = DataLoader(test_set, batch_size=args.batch_size, num_workers=args.n_workers, pin_memory=True, shuffle=True)
 
-    #     generate_test_dataset_into_directory(files = args.files, 
-    #                                         target_dir = args.test_root, 
-    #                                         n_samples = args.n_test, 
-    #                                         n_pixels=args.n_pixels_original, 
-    #                                         n_samples_per_file=args.n_samples_per_file, 
-    #                                         augmenter=augmenter,
-    #                                         n_workers=args.n_workers)
-
-    # test_set    = FixedPACBEDDataset(root = args.test_root)
-    # test_loader = DataLoader(test_set, batch_size=args.batch_size, num_workers=args.n_workers)
+    # Create an experimental test set
+    experimental_loader   = utils.experimental_dataloader(data_dir=Path(args.exp_dir), results_file=Path(args.exp_cfg), batch_size=args.batch_size, num_workers=args.n_workers, pin_memory=True)
 
     # Define model
     model       = PACBED(backbone=args.backbone, n_pixels=args.n_pixels_original, lr=args.lr, momentum=args.momentum)
@@ -146,7 +144,16 @@ def main():
                     train_dataloaders=train_loader, 
                     val_dataloaders=validation_loader)
     
+    # Save final checkpoint
     trainer.save_checkpoint(f"{model_dir}/{name}_final.ckpt")
+
+    # Test model on data drawn from validation set
+    print("Testing on data drawn from validation distribution:")
+    trainer.test(dataloaders=test_loader, ckpt_path="best")
+
+    # Test on experimental data
+    print("Testing on experimental data:")
+    trainer.test(dataloaders=experimental_loader, ckpt_path="best")
 
     end = time.time()
 
