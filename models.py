@@ -24,13 +24,12 @@ class RadialNormalization(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         
-        # TODO
-        R2 = 1
+        R2 = self.n_pixels_target // 2
     
         a = torch.pow(10, -7 + 2 * torch.rand(1, device=x.device))
         b = (5 + 95 * torch.rand(1, device=x.device)) * (self.n_pixels_target / self.n_pixels_original)
 
-        p = torch.rand()
+        p = torch.rand(1)
 
         if p > 0.5:
 
@@ -208,7 +207,7 @@ class Augmenter(nn.Module):
             transforms.Resize((n_pixels_target, n_pixels_target)),
             AddNoise(eta),
             Normalize(scaling),
-            # RadialNormalization(n_pixels_original, n_pixels_target),
+            RadialNormalization(n_pixels_original, n_pixels_target),
             transforms.RandomApply([
             transforms.RandomChoice([
                 AnnulusOcclusion(n_pixels_target, invert = False),
@@ -269,7 +268,7 @@ class CustomPACBEDBackbone(nn.Module):
 
 class PACBED(pl.LightningModule):
 
-    def __init__(self, backbone: str, n_pixels: int, lr: float = 1e-3, momentum: float = 0.99):
+    def __init__(self, backbone: str, n_pixels: int, lr: float = 1e-3, momentum: float = 0.99, **kwargs):
 
         super().__init__()
 
@@ -277,7 +276,8 @@ class PACBED(pl.LightningModule):
         self.lr         = lr
         self.momentum   = momentum
         self.backbone   = backbone
-        self.save_hyperparameters('n_pixels', 'lr', 'momentum', 'backbone')
+        self.kwargs     = kwargs
+        self.save_hyperparameters()
 
         self.pre_conv = nn.Sequential(
             nn.Conv2d(1, 3, 3, stride = 1, padding = 0),
@@ -295,6 +295,10 @@ class PACBED(pl.LightningModule):
             self.model.fc = nn.Linear(n_features, 1)
         else:
             raise ValueError("Backbone not implemented.")
+        
+        self.validation_step_outputs: List[Dict[str, torch.Tensor]] = []
+        self.training_step_outputs: List[Dict[str, torch.Tensor]] = []
+        self.test_step_outputs: List[Dict[str, torch.Tensor]] = []
 
     def forward(self, x):
 
@@ -321,59 +325,78 @@ class PACBED(pl.LightningModule):
         y_hat = self(x)
         loss = F.mse_loss(y_hat, y)
 
+        self.validation_step_outputs.append({"loss": loss, "x": x, "y_true": y, "y_pred": y_hat})
+
         return {"loss": loss, "x": x, "y_true": y, "y_pred": y_hat}
     
-    def validation_epoch_end(self, outputs) -> None:
-        
-        loss = torch.stack([l['loss'] for l in outputs]).mean()
-
-        self.log("val_loss", loss.detach().item(), on_step=False, on_epoch=True, prog_bar=True, logger=True)
-
-        x = torch.cat([_['x'] for _ in outputs])
-        y_true = torch.cat([_['y_true'] for _ in outputs])
-        y_pred = torch.cat([_['y_pred'] for _ in outputs])
-
-        self.log_validation_scatter(y_true, y_pred)
-
-        # Sample 4 random indices
-        # and select corresponding images with true and predicted labels
-        idx = np.random.choice(x.shape[0], 4, replace = False)
-        x = x[idx]
-        y_true = y_true[idx]
-        y_pred = y_pred[idx]
-
-        if self.current_epoch % 50 == 0:
-            self.log_image_w_predictions(x, y_true, y_pred)
-
     def test_step(self, batch: torch.Tensor, batch_idx: int):
     
         x, y = batch
         y_hat = self(x)
         loss = F.mse_loss(y_hat, y)
 
+        self.test_step_outputs.append({"loss": loss, "x": x, "y_true": y, "y_pred": y_hat})
+
         return {"loss": loss, "x": x, "y_true": y, "y_pred": y_hat}
     
-    def test_epoch_end(self, outputs) -> None:
-
-        #x = torch.cat([_['x'] for _ in outputs])
-        y_true = torch.cat([_['y_true'] for _ in outputs])
-        y_pred = torch.cat([_['y_pred'] for _ in outputs])
-
-        self.log_validation_scatter(y_true, y_pred)
-
-
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         return self(batch)
+    
+    def on_validation_epoch_end(self) -> None:
         
+        loss = torch.stack([l['loss'] for l in self.validation_step_outputs]).mean()
 
-    def log_validation_scatter(self, y_true: torch.Tensor, y_pred: torch.Tensor) -> None:
+        self.log("val_loss", loss.detach().item(), on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        x = torch.cat([_['x'] for _ in self.validation_step_outputs])
+        y_true = torch.cat([_['y_true'] for _ in self.validation_step_outputs])
+        y_pred = torch.cat([_['y_pred'] for _ in self.validation_step_outputs])
+
+        if self.current_epoch % 50 == 0:
+            try:
+                self.log_validation_scatter(y_true, y_pred, name="val")
+            except Exception as e:
+                print("\n", e, "\n")
+                pass
+
+        # Sample 4 random indices
+        # and select corresponding images with true and predicted labels
+        idx = np.random.choice(x.shape[0], 4, replace = False)
+        x_sample = x[idx]
+        y_true_sample = y_true[idx]
+        y_pred_sample = y_pred[idx]
+
+        if self.current_epoch % 50 == 0:
+            self.log_image_w_predictions(x_sample, y_true_sample, y_pred_sample)
+
+        self.validation_step_outputs = []
+    
+    def on_test_epoch_end(self) -> None:
+        
+        #x = torch.cat([_['x'] for _ in outputs])
+        
+        y_true = torch.cat([_['y_true'].view(self.kwargs['batch_size'], 1) for _ in self.test_step_outputs])
+        y_pred = torch.cat([_['y_pred'] for _ in self.test_step_outputs])
+
+        try:
+            self.log_validation_scatter(y_true, y_pred, name="test")
+        except Exception as e:
+            print("\n", e, "\n")
+
+            pass
+
+
+    def log_validation_scatter(self, y_true: torch.Tensor, y_pred: torch.Tensor, name: str = "") -> None:
 
         fig, ax, ax_histx, ax_histy = utils.scatter_hist(
             y_true.cpu().detach().exp().numpy(), 
             y_pred.cpu().detach().exp().numpy()
         )
 
-        fig.savefig(f"{self.logger.log_dir}/images/scatter/epoch_{self.current_epoch}.png")
+        if not os.path.exists(f"{self.logger.log_dir}/images/scatter"):
+            os.makedirs(f"{self.logger.log_dir}/images/scatter")
+
+        fig.savefig(f"{self.logger.log_dir}/images/scatter/{name}_epoch_{self.current_epoch}.png")
 
 
     def log_image_w_predictions(self, x: torch.Tensor, y_true: torch.Tensor, y_pred: torch.Tensor) -> None:

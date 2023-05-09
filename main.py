@@ -38,10 +38,11 @@ def main():
     SEED                = 42
     DEVICE              = 'gpu'
     N_DEVICES           = 1
-    N_EPOCHS            = 100
+    N_EPOCHS            = 10
     BACKBONE            = 'resnet34'
     LOG_DIR             = './logs'
     P_OCCLUSION         = 0.4
+    PRECISION           = "high"
 
     parser.add_argument('--n_samples_per_file', type=int, default=N_SAMPLES_PER_FILE)
     parser.add_argument('--n_pixels_original', type=int, default=N_PIXELS_ORIGINAL)
@@ -67,6 +68,8 @@ def main():
     parser.add_argument('--checkpoint', type=str, default='')
     parser.add_argument('--exp_dir', type=str, required=True)
     parser.add_argument('--exp_cfg', type=str, required=True)
+    parser.add_argument('--precision', type=str, default=PRECISION)
+
 
     args = parser.parse_args()
 
@@ -123,9 +126,9 @@ def main():
     experimental_loader   = utils.experimental_dataloader(data_dir=Path(args.exp_dir), results_file=Path(args.exp_cfg), batch_size=args.batch_size, num_workers=args.n_workers, pin_memory=True)
 
     # Define model
-    model       = PACBED(backbone=args.backbone, n_pixels=args.n_pixels_original, lr=args.lr, momentum=args.momentum)
+    model       = PACBED(n_pixels=args.n_pixels_original, **vars(args))
 
-    torch.set_float32_matmul_precision('medium')
+    torch.set_float32_matmul_precision(args.precision)
     trainer = pl.Trainer(
         accelerator=args.device, 
         devices=args.n_devices, 
@@ -148,11 +151,11 @@ def main():
     trainer.save_checkpoint(f"{model_dir}/{name}_final.ckpt")
 
     # Test model on data drawn from validation set
-    print("Testing on data drawn from validation distribution:")
+    print("\nTesting on data drawn from validation distribution:")
     trainer.test(dataloaders=test_loader, ckpt_path="best")
 
     # Test on experimental data
-    print("Testing on experimental data:")
+    print("\nTesting on experimental data:")
     trainer.test(dataloaders=experimental_loader, ckpt_path="best")
 
     end = time.time()

@@ -2,21 +2,15 @@ import matplotlib.pyplot as plt
 import matplotlib.figure
 import numpy as np
 from typing import *
-
-import os
 from pathlib import Path
 import torch
-import torchvision
 import numpy as np
 import matplotlib.pyplot as plt
 import json
-from models import Augmenter, PACBED
-from torch.utils.data import DataLoader, RandomSampler, TensorDataset
-import pytorch_lightning as pl
+from torch.utils.data import DataLoader, TensorDataset
 import matplotlib.pyplot as plt
 import torch
-from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
-from pytorch_lightning.callbacks import ModelCheckpoint
+
 
 def scatter_hist(x: np.ndarray, y: np.ndarray, left: float = 0.1, width: float = 0.65, bottom: float = 0.1, height: float = 0.65, spacing: float = 0.005) -> Tuple[matplotlib.figure.Figure, plt.Axes, plt.Axes, plt.Axes]:
 
@@ -46,14 +40,16 @@ def scatter_hist(x: np.ndarray, y: np.ndarray, left: float = 0.1, width: float =
     ax.plot([xmin, xmin], [xmax,xmax], 'k')
 
     # now determine nice limits by hand:
-    binwidth = 0.25
-    xymax = max(np.max(np.abs(x)), np.max(np.abs(y)))
-    lim = (int(xymax/binwidth) + 1) * binwidth
+    # binwidth = 0.25
+    # xymax = max(np.max(np.abs(x)), np.max(np.abs(y)))
+    # lim = (int(xymax/binwidth) + 1) * binwidth
+    
 
-    bins = np.arange(-lim, lim + binwidth, binwidth)
-    ax_histx.hist(x, bins=bins)
-    ax_histy.hist(y, bins=bins, orientation='horizontal')
-
+    # bins = np.arange(-lim, lim + binwidth, binwidth)
+    
+    ax_histx.hist(x.flatten())
+    ax_histy.hist(y.flatten(), orientation='horizontal')
+    
     return fig, ax, ax_histx, ax_histy
 
 
