@@ -158,7 +158,7 @@ class PACBEDDataset(Dataset):
             
     """
 
-    def __init__(self, files: Union[List[str],str], n_samples: int, n_pixels: int, device: str = "cpu", transforms = Augmenter) -> None:
+    def __init__(self, files: Union[List[str],str], n_samples: int, n_pixels: int, device: str = "cpu", transforms = None) -> None:
         super().__init__()
 
         if isinstance(files, List) and len(files) > 1:
