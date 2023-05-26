@@ -24,6 +24,8 @@ class RadialNormalization(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         
+        # Should be radial matrix
+        # TODO
         R2 = self.n_pixels_target // 2
     
         a = torch.pow(10, -7 + 2 * torch.rand(1, device=x.device))
@@ -200,6 +202,7 @@ class Augmenter(nn.Module):
         self.offset = offset
 
         self.augment = nn.Sequential(
+            # RadialNormalization(n_pixels_original, n_pixels_target),
             transforms.RandomRotation(360),
             transforms.RandomHorizontalFlip(),
             transforms.RandomAffine(degrees = 0, translate = translate, scale = scale, shear = 0),
@@ -207,7 +210,6 @@ class Augmenter(nn.Module):
             transforms.Resize((n_pixels_target, n_pixels_target)),
             AddNoise(eta),
             Normalize(scaling),
-            RadialNormalization(n_pixels_original, n_pixels_target),
             transforms.RandomApply([
             transforms.RandomChoice([
                 AnnulusOcclusion(n_pixels_target, invert = False),
@@ -231,10 +233,12 @@ class ConvBlock(nn.Module):
         self.conv1 = nn.Conv2d(in_channels = in_channels, out_channels = out_channels, kernel_size = kernel_size, stride = 1, padding = 0)
         self.activation = activation
         self.pooling = nn.AvgPool2d((2, 2))
+        self.batchnorm = nn.BatchNorm2d(out_channels)
 
     def forward(self, x):
 
         x = self.conv1(x)
+        # x = self.batchnorm(x)
         x = self.activation(x)
         x = self.pooling(x)
 
@@ -266,35 +270,40 @@ class CustomPACBEDBackbone(nn.Module):
             
             return self.model(x)
 
-class PACBED(pl.LightningModule):
+class PhaseClassifier(pl.LightningModule):
 
-    def __init__(self, backbone: str, n_pixels: int, lr: float = 1e-3, momentum: float = 0.99, **kwargs):
+    def __init__(self, 
+                 backbone: nn.Module, 
+                 loss: nn.Module, 
+                 optimizer: torch.optim.Optimizer, 
+                 n_pixels: int, 
+                 optimizer_params: Dict[str, Any] = {},
+                 training_params: Dict[str, Any] = {},
+                 *args: Any, 
+                 **kwargs: Any,):
 
         super().__init__()
 
         self.n_pixels   = n_pixels
-        self.lr         = lr
-        self.momentum   = momentum
-        self.backbone   = backbone
+        
+        self.optimizer_params = optimizer_params
+        self.training_params = training_params
         self.kwargs     = kwargs
-        self.save_hyperparameters()
+        self.args       = args
+
+        self.save_hyperparameters(
+            "optimizer_params",
+            "training_params",
+        )
 
         self.pre_conv = nn.Sequential(
             nn.Conv2d(1, 3, 3, stride = 1, padding = 0),
             nn.ReLU(),
         )
-
-        if backbone == "custom":
-            self.model = CustomPACBEDBackbone()
-        elif backbone == "efficientnet_b1":
-            self.model = models.efficientnet_b1(pretrained=False)
-            self.model.classifier[1] = nn.Linear(1280, 1)
-        elif backbone == "resnet50":
-            self.model = models.resnet50(pretrained=False)
-            n_features = self.model.fc.in_features
-            self.model.fc = nn.Linear(n_features, 1)
-        else:
-            raise ValueError("Backbone not implemented.")
+    
+        self.model = backbone
+        self.loss = loss
+        self.optimizer = optimizer
         
         self.validation_step_outputs: List[Dict[str, torch.Tensor]] = []
         self.training_step_outputs: List[Dict[str, torch.Tensor]] = []
@@ -306,14 +315,16 @@ class PACBED(pl.LightningModule):
     
     def configure_optimizers(self):
 
-        # return torch.optim.Adam(self.model.parameters(), lr=self.lr)
-        return torch.optim.SGD(self.model.parameters(), lr=self.lr, momentum=self.momentum)
+        optimizer = self.optimizer(self.parameters(), **self.hparams.optimizer_params)
+
+        return optimizer
     
     def training_step(self, batch: torch.Tensor, batch_idx: int):
 
         x, y = batch
         y_hat = self(x)
-        loss = F.mse_loss(y_hat, y)
+        # print(y_hat.shape, y)
+        loss = self.loss(y_hat, y.squeeze().long())
 
         self.log("train_loss", loss.detach().item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
@@ -323,7 +334,7 @@ class PACBED(pl.LightningModule):
 
         x, y = batch
         y_hat = self(x)
-        loss = F.mse_loss(y_hat, y)
+        loss = self.loss(y_hat, y.squeeze().long())
 
         self.validation_step_outputs.append({"loss": loss, "x": x, "y_true": y, "y_pred": y_hat})
 
@@ -333,7 +344,7 @@ class PACBED(pl.LightningModule):
     
         x, y = batch
         y_hat = self(x)
-        loss = F.mse_loss(y_hat, y)
+        loss = self.loss(y_hat, y.squeeze().long())
 
         self.test_step_outputs.append({"loss": loss, "x": x, "y_true": y, "y_pred": y_hat})
 
@@ -352,12 +363,12 @@ class PACBED(pl.LightningModule):
         y_true = torch.cat([_['y_true'] for _ in self.validation_step_outputs])
         y_pred = torch.cat([_['y_pred'] for _ in self.validation_step_outputs])
 
-        if self.current_epoch % 50 == 0:
-            try:
-                self.log_validation_scatter(y_true, y_pred, name="val")
-            except Exception as e:
-                print("\n", e, "\n")
-                pass
+        # if self.current_epoch % 50 == 0:
+        #     try:
+        #         self.log_validation_scatter(y_true, y_pred, name="val")
+        #     except Exception as e:
+        #         print("\n", e, "\n")
+        #         pass
 
         # Sample 4 random indices
         # and select corresponding images with true and predicted labels
@@ -366,8 +377,8 @@ class PACBED(pl.LightningModule):
         y_true_sample = y_true[idx]
         y_pred_sample = y_pred[idx]
 
-        if self.current_epoch % 50 == 0:
-            self.log_image_w_predictions(x_sample, y_true_sample, y_pred_sample)
+        # if self.current_epoch % 50 == 0:
+            # self.log_image_w_predictions(x_sample, y_true_sample, y_pred_sample)
 
         self.validation_step_outputs = []
     
@@ -378,12 +389,12 @@ class PACBED(pl.LightningModule):
         y_true = torch.cat([_['y_true'].view(self.kwargs['batch_size'], 1) for _ in self.test_step_outputs])
         y_pred = torch.cat([_['y_pred'] for _ in self.test_step_outputs])
 
-        try:
-            self.log_validation_scatter(y_true, y_pred, name="test")
-        except Exception as e:
-            print("\n", e, "\n")
+        # try:
+        #     self.log_validation_scatter(y_true, y_pred, name="test")
+        # except Exception as e:
+        #     print("\n", e, "\n")
 
-            pass
+        #     pass
 
 
     def log_validation_scatter(self, y_true: torch.Tensor, y_pred: torch.Tensor, name: str = "") -> None:

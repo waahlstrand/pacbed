@@ -1,6 +1,6 @@
 #%%
-from models import PACBED, Augmenter
-from datasets import PACBEDDataset, FixedPACBEDDataset, InMemoryPACBEDDataset, generate_test_dataset_into_directory
+from models.regression import PACBED, Augmenter
+from data.regression import PACBEDDataset, FixedPACBEDDataset, InMemoryPACBEDDataset, generate_test_dataset_into_directory
 from torch.utils.data import DataLoader, RandomSampler
 import pytorch_lightning as pl
 import matplotlib.pyplot as plt
