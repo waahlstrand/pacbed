@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 from typing import *
 import numpy as np
 import pytorch_lightning as pl
-from models import Augmenter
 from pathlib import Path
 from tqdm import tqdm
 
@@ -46,7 +45,7 @@ def read_torch_pacbed_data(name: str, root: Path):
 
     return x, y
 
-def generate_test_dataset(files: List[Path], n_samples: int, n_pixels: int, n_samples_per_file: int, augmenter: Augmenter, n_workers: int = 8):
+def generate_test_dataset(files: List[Path], n_samples: int, n_pixels: int, n_samples_per_file: int, augmenter: None, n_workers: int = 8):
     """
     Generates a test dataset. This function is a generator that yields a tuple (x, y) where
     x is a tensor of shape (1, n_pixels, n_pixels, 1) and y is a tensor of shape (1, 1) containing
