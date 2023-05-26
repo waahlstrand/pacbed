@@ -71,7 +71,7 @@ def generate_test_dataset(files: List[Path], n_samples: int, n_pixels: int, n_sa
     for x, y in tqdm(loader, total=n_samples):
         yield x, y
 
-def generate_test_dataset_into_directory(files: List[Path], target_dir: Path, n_samples: int, n_pixels: int, n_samples_per_file: int, augmenter: Augmenter, n_workers: int = 8):
+def generate_test_dataset_into_directory(files: List[Path], target_dir: Path, n_samples: int, n_pixels: int, n_samples_per_file: int, augmenter: None, n_workers: int = 8):
     """
     Generates a test dataset into a directory.
     
