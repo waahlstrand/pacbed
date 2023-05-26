@@ -1,12 +1,13 @@
 # Folders
 __pycache__/
 code_magnus/
-data/
 logs/
 results/
 exp_data_20230421/
 tensorflow/
 version_*
+phases/
+test.py
 
 # File types
 *.bin
@@ -18,5 +19,4 @@ version_*
 *:Zone.Identifier
 *.pyc
 *.csv
-
 *.json
