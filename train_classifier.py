@@ -14,6 +14,7 @@ import time
 import matplotlib
 import utils
 from torchvision.models import resnet50
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 import pandas as pd
 matplotlib.use('Agg')
 
@@ -187,12 +188,56 @@ def main():
         trainer.save_checkpoint(f"{model_dir}/{name}_final.ckpt")
 
     # Test model on data drawn from validation set
-    print("\nTesting on data drawn from validation distribution:")
-    trainer.test(dataloaders=test_loader, ckpt_path="best")
+    # print("\nTesting on data drawn from validation distribution:")
+    # trainer.test(dataloaders=test_loader, ckpt_path="best")
 
     # Test on experimental data
     # print("\nTesting on experimental data:")
     # trainer.test(dataloaders=experimental_loader, ckpt_path="best")
+
+    ###########################################
+    # Test on data drawn from test set
+    best_checkpoint = checkpoint.best_model_path
+    model       = PhaseClassifier.load_from_checkpoint(
+        best_checkpoint,
+        backbone=backbone,
+        optimizer=optimizer,
+        loss=loss,
+        optimizer_params={
+            'lr': args.lr,
+            'momentum': args.momentum
+        },
+        n_pixels=args.n_pixels_original, 
+        **vars(args))
+    
+    model.eval()
+
+    y_true = []
+    y_pred = []
+
+    for x, y in test_loader:
+
+        logits = model(x.to(model.device))
+        pred = torch.softmax(logits, dim=1).argmax(dim=1)
+
+        y_true.extend([true.cpu().numpy() for true in y])
+        y_pred.extend([p.cpu().numpy() for p in pred])
+
+
+    accuracy = (torch.tensor(y_true) == torch.tensor(y_pred)).float().mean().numpy()
+    
+    cm = confusion_matrix(y_true, y_pred)
+
+    disp = ConfusionMatrixDisplay(cm, 
+                                display_labels=[c for c in metadata["Filename"].unique()])
+    disp.plot()
+    plt.savefig(f"{model_dir}/{name}_confusion_matrix.png")
+
+    csv_path = loggers[0].experiment.metrics_file_path
+    f, ax, df = utils.visualize_classification_metrics_csv(csv_path, figsize=(5, 5), dpi=300)
+    ax.set_title("Cross-entropy loss for phase classification")
+    plt.show()
+
 
     end = time.time()
 
