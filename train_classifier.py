@@ -73,7 +73,7 @@ def main():
     parser.add_argument('--precision', type=str, default=PRECISION)
     parser.add_argument('--name', type=str, default='')
     parser.add_argument("--debug", default=False)
-    parser.add_argument("--metadata", type=str, default="")
+    parser.add_argument("--source", type=str, default="")
     parser.add_argument("--energy", type=float, default=200)
     parser.add_argument("--convergence_angle", type=float, default=26.69)
 
@@ -86,7 +86,7 @@ def main():
     # Human readable time
     name = time.strftime("%Y%m%d-%H%M%S")
 
-    metadata = pd.read_csv(args.metadata)
+    metadata = pd.read_csv(args.source)
 
     train_augmenter = Augmenter(
         n_pixels_original=args.n_pixels_original, 
