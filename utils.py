@@ -10,6 +10,32 @@ import json
 from torch.utils.data import DataLoader, TensorDataset
 import matplotlib.pyplot as plt
 import torch
+import pandas as pd
+
+
+def visualize_classification_metrics_csv(csv_path: Path, **kwargs) -> Tuple[matplotlib.figure.Figure, plt.Axes, pd.DataFrame]:
+
+    df = pd.read_csv(csv_path)
+
+    fig, ax = plt.subplots(1, 1, **kwargs)
+    
+    train_loss = df[["step", "train_loss_epoch"]].dropna()
+    val_loss = df[["step", "val_loss"]].dropna()
+
+    ax.semilogy(train_loss["step"], train_loss["train_loss_epoch"], label="train_loss")
+    ax.semilogy(val_loss["step"], val_loss["val_loss"], label="val_loss")
+
+    if 'train_acc' in df.columns:
+        ax.plot(df['step'], df['train_acc'], label='train_acc')
+    
+    if 'val_acc' in df.columns:
+        ax.plot(df['step'], df['val_acc'], label='val_acc')
+
+    ax.legend()
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Loss')
+
+    return fig, ax, df
 
 
 def scatter_hist(x: np.ndarray, y: np.ndarray, left: float = 0.1, width: float = 0.65, bottom: float = 0.1, height: float = 0.65, spacing: float = 0.005) -> Tuple[matplotlib.figure.Figure, plt.Axes, plt.Axes, plt.Axes]:
