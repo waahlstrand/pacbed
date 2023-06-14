@@ -5,7 +5,7 @@ import pytorch_lightning as pl
 import matplotlib.pyplot as plt
 import torch
 from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, Timer
 from pathlib import Path
 import warnings
 import argparse
@@ -14,6 +14,7 @@ import time
 import matplotlib
 import utils
 from torchvision.models import resnet50
+import pandas as pd
 matplotlib.use('Agg')
 
 warnings.filterwarnings("ignore")
@@ -66,35 +67,26 @@ def main():
     parser.add_argument('--log_dir', type=str, default=LOG_DIR)
     parser.add_argument('--p_occlusion', type=float, default=P_OCCLUSION)
     parser.add_argument('--checkpoint', type=str, default='')
-    parser.add_argument('--exp_dir', type=str, required=True)
-    parser.add_argument('--exp_cfg', type=str, required=True)
+    # parser.add_argument('--exp_dir', type=str, required=True)
+    # parser.add_argument('--exp_cfg', type=str, required=True)
     parser.add_argument('--precision', type=str, default=PRECISION)
     parser.add_argument('--name', type=str, default='')
     parser.add_argument("--debug", default=False)
-
+    parser.add_argument("--metadata", type=str, default="")
+    parser.add_argument("--energy", type=float, default=200)
+    parser.add_argument("--convergence_angle", type=float, default=26.69)
 
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
     start = time.time()
+    max_duration = "07:00:00:00"
 
     # Human readable time
     name = time.strftime("%Y%m%d-%H%M%S")
 
-    class_map = {
-    "data_MoS2_2H.bin": 0,
-    "data_MoS2_2T.bin": 1,
-    "data_MoS2_3R.bin": 2,
-    "data_WS2_2H_AB.bin": 3,
-    }
+    metadata = pd.read_csv(args.metadata)
 
-    weight_map = {
-    0: 1/165,
-    1: 1/180,
-    2: 1/165,
-    3: 1/165,
-    }
-    
     train_augmenter = Augmenter(
         n_pixels_original=args.n_pixels_original, 
         n_pixels_target=args.n_pixels_target, 
@@ -114,7 +106,7 @@ def main():
         )
 
     loggers = []
-    checkpoints = []
+    checkpoints = [Timer(duration=max_duration)]
     if not args.debug:
         logger     = CSVLogger(args.log_dir, name=args.name)
         model_dir  = logger.log_dir + "/checkpoints"
@@ -124,21 +116,22 @@ def main():
         checkpoints.append(checkpoint)
     else:
         print("Debugging.")
-
-    files = list(Path(args.root).glob("*.bin"))
     
     # Create training set
-    train_set       = PACBEDPhaseDataset(files = files, n_pixels=args.n_pixels_original, class_map=class_map, transforms=train_augmenter)
+    # Filter metadata to selection
+    metadata["Filename"] = metadata["Filename"].apply(lambda x: "/".join([args.root, x]))
+    metadata = metadata[(metadata["Energy"] == args.energy) & (metadata["Convergence angle"] == args.convergence_angle)]
+    train_set       = PACBEDPhaseDataset(source=metadata, transforms=train_augmenter)
 
     # Count number of samples in training set for each class
-    weights = [weight_map[int(y)] for _, y in train_set]
+    weights = [1/row["DimZ"] for _, row in metadata.iterrows()]
     sampler = WeightedRandomSampler(weights, len(weights), replacement=True)
 
     train_sampler   = RandomSampler(train_set, replacement=True, num_samples=args.n_samples)
     train_loader    = DataLoader(train_set, batch_size=args.batch_size, num_workers=args.n_workers, sampler=train_sampler, pin_memory=True)
 
     # Create a distribution of realistically augmented images (no occlusion, et c.)
-    realistic_set           = PACBEDPhaseDataset(files = files, n_pixels=args.n_pixels_original, class_map=class_map, transforms=val_augmenter)
+    realistic_set           = PACBEDPhaseDataset(source=metadata, transforms=val_augmenter)
     
     # Create a validation set
     validation_sampler          = RandomSampler(realistic_set, replacement=True, num_samples=args.n_validation)
@@ -153,10 +146,10 @@ def main():
     test_loader           = DataLoader(test_set, batch_size=args.batch_size, num_workers=args.n_workers, pin_memory=True, shuffle=True)
 
     # Create an experimental test set
-    experimental_loader   = utils.experimental_dataloader(data_dir=Path(args.exp_dir), results_file=Path(args.exp_cfg), batch_size=args.batch_size, num_workers=args.n_workers, pin_memory=True)
+    # experimental_loader   = utils.experimental_dataloader(data_dir=Path(args.exp_dir), results_file=Path(args.exp_cfg), batch_size=args.batch_size, num_workers=args.n_workers, pin_memory=True)
 
     # Define model
-    backbone    = resnet50(pretrained=False, num_classes=len(class_map.keys()))
+    backbone    = resnet50(pretrained=False, num_classes=len(metadata["Class index"].unique()))
     optimizer   = torch.optim.SGD
     loss        = torch.nn.CrossEntropyLoss()
     model       = PhaseClassifier(
@@ -198,8 +191,8 @@ def main():
     trainer.test(dataloaders=test_loader, ckpt_path="best")
 
     # Test on experimental data
-    print("\nTesting on experimental data:")
-    trainer.test(dataloaders=experimental_loader, ckpt_path="best")
+    # print("\nTesting on experimental data:")
+    # trainer.test(dataloaders=experimental_loader, ckpt_path="best")
 
     end = time.time()
 

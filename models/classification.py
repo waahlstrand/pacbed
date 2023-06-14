@@ -4,6 +4,7 @@ import torch
 import pytorch_lightning as pl
 import torch.nn as nn
 from torchvision import transforms
+from torchvision.transforms import functional
 from torch.nn import functional as F
 import pytorch_lightning.loggers as pl_loggers
 import torchvision.models as models
@@ -177,6 +178,24 @@ class CenterCropWithRandomOffset(nn.Module):
         return y
 
 
+class RandomGaussianBlur(nn.Module):
+
+    def __init__(self, min_var: float, max_var: float, kernel_size: int = 3, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.min_var_log10 = torch.log10(torch.tensor(min_var))
+        self.max_var_log10 = torch.log10(torch.tensor(max_var))
+        self.kernel_size = kernel_size
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+
+        var = torch.rand(1).item() * (self.max_var_log10 - self.min_var_log10) + self.min_var_log10
+        var = torch.pow(10, var)
+        y = functional.gaussian_blur(x, self.kernel_size, var.item())
+
+        return y
+
+
 class Augmenter(nn.Module):
 
     def __init__(self, 
@@ -203,6 +222,7 @@ class Augmenter(nn.Module):
 
         self.augment = nn.Sequential(
             # RadialNormalization(n_pixels_original, n_pixels_target),
+            RandomGaussianBlur(0.1, 2.0),
             transforms.RandomRotation(360),
             transforms.RandomHorizontalFlip(),
             transforms.RandomAffine(degrees = 0, translate = translate, scale = scale, shear = 0),

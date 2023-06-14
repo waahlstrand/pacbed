@@ -7,8 +7,7 @@ import numpy as np
 import pytorch_lightning as pl
 from pathlib import Path
 from tqdm import tqdm
-
-
+import pandas as pd
 
 def process_pacbed_from_file(file: str, n_pixels: int, class_idx: int):
     """
@@ -35,7 +34,7 @@ def process_pacbed_from_file(file: str, n_pixels: int, class_idx: int):
 
     return x, y
 
-def process_multiple_pacbed_from_file(files: List[Path], n_pixels: int, class_map: Dict[str, int]):
+def process_multiple_pacbed_from_file(files: List[Path], n_pixels: List[int], class_idxs: List[int]):
     """
     Reads a list of binary files containing PACBED datasets and returns a tuple (x, y) where
     x is a numpy array of shape (n_samples, n_pixels, n_pixels, 1) and y is a numpy array
@@ -50,7 +49,7 @@ def process_multiple_pacbed_from_file(files: List[Path], n_pixels: int, class_ma
         Tuple[np.ndarray, np.ndarray]: A tuple (x, y) where x is a numpy array of shape (n_samples, n_pixels, n_pixels, 1)
     """
 
-    data = [process_pacbed_from_file(file, n_pixels, class_map[file.name]) for file in files]
+    data = [process_pacbed_from_file(file, n, class_idx) for file, n, class_idx in zip(files, n_pixels, class_idxs)]
     xs, ys = list(zip(*data))
 
     x = np.concatenate(xs)
@@ -62,33 +61,31 @@ class PACBEDPhaseDataset(Dataset):
     """
     Dataset class for PACBED data. The dataset is a list of tuples (x, y) where x is a tensor
     of shape (n_pixels, n_pixels, 1) and y is a tensor of shape (1,).
-    
+
     Args:
-        files (List[str] | str): List of paths to the binary files or a single path to a binary file
-        n_samples (int): Number of samples in each file
-        n_pixels (int): Number of pixels per sample dimensions
-        device (str): Device to load the data to
-        
+        files (List[str]): List of paths to the binary files
+        source (pd.DataFrame): A dataframe containing source data and metadata for the dataset
+        device (str, optional): Device to store the data on. Defaults to "cpu".
+        transforms (Callable, optional): A callable that transforms the data. Defaults to None.
+
     Returns:
-            Dataset: A dataset object
+        Tuple[torch.Tensor, torch.Tensor]: A tuple (x, y) where x is a tensor of shape (n_pixels, n_pixels, 1)
             
     """
 
-    def __init__(self, files: Union[List[Path],Path], n_pixels: int, class_map: Dict[str, int], device: str = "cpu", transforms = None) -> None:
+    def __init__(self, source: pd.DataFrame, device: str = "cpu", transforms = None) -> None:
         super().__init__()
 
-        if isinstance(files, List) and len(files) > 1:
-            x, y = process_multiple_pacbed_from_file(files, n_pixels, class_map)
-        elif isinstance(files, Path) or isinstance(files, str):
-            x, y = process_pacbed_from_file(files, n_pixels, class_map[Path(files).name])
-        elif isinstance(files, List) and len(files) == 1:
-            x, y = process_pacbed_from_file(files[0], n_pixels, class_map[Path(files[0]).name]) 
-        else:
-            raise ValueError()
+        files       = source["Filename"].to_list()
+        class_idxs  = source["Class index"].to_list()
+        n_pixels_x  = source["DimX"].to_list()
+
+        x, y = process_multiple_pacbed_from_file(files, n_pixels_x, class_idxs)
 
         self.transforms = transforms
         self.x = torch.tensor(x, device=device, dtype=torch.float32)
         self.y = torch.tensor(y, device=device, dtype=torch.float32)
+
 
     def __len__(self):
         return len(self.x)
