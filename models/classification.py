@@ -339,10 +339,9 @@ class PhaseClassifier(pl.LightningModule):
 
         x, y = batch
         y_hat = self(x)
-        # print(y_hat.shape, y)
         loss = self.loss(y_hat, y.squeeze().long())
 
-        self.log("train_loss", loss.detach().item(), on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return loss
     
@@ -379,13 +378,6 @@ class PhaseClassifier(pl.LightningModule):
         y_true = torch.cat([_['y_true'] for _ in self.validation_step_outputs])
         y_pred = torch.cat([_['y_pred'] for _ in self.validation_step_outputs])
 
-        # if self.current_epoch % 50 == 0:
-        #     try:
-        #         self.log_validation_scatter(y_true, y_pred, name="val")
-        #     except Exception as e:
-        #         print("\n", e, "\n")
-        #         pass
-
         # Sample 4 random indices
         # and select corresponding images with true and predicted labels
         idx = np.random.choice(x.shape[0], 4, replace = False)
@@ -393,8 +385,6 @@ class PhaseClassifier(pl.LightningModule):
         y_true_sample = y_true[idx]
         y_pred_sample = y_pred[idx]
 
-        # if self.current_epoch % 50 == 0:
-            # self.log_image_w_predictions(x_sample, y_true_sample, y_pred_sample)
 
         self.validation_step_outputs = []
     
@@ -404,13 +394,6 @@ class PhaseClassifier(pl.LightningModule):
         
         y_true = torch.cat([_['y_true'].view(self.kwargs['batch_size'], 1) for _ in self.test_step_outputs])
         y_pred = torch.cat([_['y_pred'] for _ in self.test_step_outputs])
-
-        # try:
-        #     self.log_validation_scatter(y_true, y_pred, name="test")
-        # except Exception as e:
-        #     print("\n", e, "\n")
-
-        #     pass
 
 
     def log_validation_scatter(self, y_true: torch.Tensor, y_pred: torch.Tensor, name: str = "") -> None:

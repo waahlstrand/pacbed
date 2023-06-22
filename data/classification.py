@@ -77,7 +77,7 @@ class PACBEDPhaseDataset(Dataset):
         super().__init__()
 
         files       = source["Filename"].to_list()
-        class_idxs  = source["Class index"].to_list()
+        class_idxs  = source["Phase index"].to_list()
         n_pixels_x  = source["DimX"].to_list()
 
         x, y = process_multiple_pacbed_from_file(files, n_pixels_x, class_idxs)
