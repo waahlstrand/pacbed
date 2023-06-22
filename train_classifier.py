@@ -121,7 +121,7 @@ def main():
     # Create training set
     # Filter metadata to selection
     metadata["Filename"] = metadata["Filename"].apply(lambda x: "/".join([args.root, x]))
-    metadata = metadata[(metadata["Energy"] == args.energy) & (metadata["Convergence angle"] == args.convergence_angle)]
+    metadata = metadata[(metadata["Energy index"] == args.energy) & (metadata["Convergence angle index"] == args.convergence_angle)]
     train_set       = PACBEDPhaseDataset(source=metadata, transforms=train_augmenter)
 
     # Count number of samples in training set for each class
@@ -150,7 +150,7 @@ def main():
     # experimental_loader   = utils.experimental_dataloader(data_dir=Path(args.exp_dir), results_file=Path(args.exp_cfg), batch_size=args.batch_size, num_workers=args.n_workers, pin_memory=True)
 
     # Define model
-    backbone    = resnet50(pretrained=False, num_classes=len(metadata["Class index"].unique()))
+    backbone    = resnet50(pretrained=False, num_classes=len(metadata["Phase index"].unique()))
     optimizer   = torch.optim.SGD
     loss        = torch.nn.CrossEntropyLoss()
     model       = PhaseClassifier(
