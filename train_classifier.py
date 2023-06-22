@@ -168,8 +168,12 @@ def main():
             **vars(args)
         })
     
+    # Turn on grad for all parameters
+    # torch.set_grad_enabled(True)
+    
     # Compile the model
     compiled = torch.compile(model)
+    # compiled = model
 
     torch.set_float32_matmul_precision(args.precision)
     trainer = pl.Trainer(
@@ -181,19 +185,19 @@ def main():
     
     if args.checkpoint == "best":
         chkpt = checkpoint.best_model_path
-        trainer.fit(model, 
+        trainer.fit(compiled, 
                     train_dataloaders=train_loader, 
                     val_dataloaders=validation_loader,
                     ckpt_path=chkpt)
         
     elif args.checkpoint != '':
-        trainer.fit(model, 
+        trainer.fit(compiled, 
                     train_dataloaders=train_loader, 
                     val_dataloaders=validation_loader,
                     ckpt_path=args.checkpoint)
     else:
         # Train model
-        trainer.fit(model, 
+        trainer.fit(compiled, 
                     train_dataloaders=train_loader, 
                     val_dataloaders=validation_loader)
     
