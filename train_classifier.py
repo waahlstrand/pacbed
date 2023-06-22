@@ -172,8 +172,8 @@ def main():
     # torch.set_grad_enabled(True)
     
     # Compile the model
-    compiled = torch.compile(model)
-    # compiled = model
+    # compiled = torch.compile(model)
+    compiled = model
 
     torch.set_float32_matmul_precision(args.precision)
     trainer = pl.Trainer(
