@@ -17,31 +17,32 @@ import utils
 
 class RadialNormalization(nn.Module):
 
-    def __init__(self, n_pixels_original: int, n_pixels_target: int) -> None:
+    def __init__(self, n_pixels_original: int, n_pixels_crop: int, n_pixels_target: int) -> None:
         super().__init__()
 
         self.n_pixels_original = n_pixels_original
         self.n_pixels_target = n_pixels_target
+        self.n_pixels_crop = n_pixels_crop
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+
+        d = torch.linspace(-self.n_pixels_original // 2, self.n_pixels_original // 2, self.n_pixels_original, device=x.device)
+        X, Y = torch.meshgrid(d, d)
+        R2 = X**2 + Y**2
+        R2 = R2.view_as(x)
         
-        # Should be radial matrix
-        # TODO
-        R2 = self.n_pixels_target // 2
-    
         a = torch.pow(10, -7 + 2 * torch.rand(1, device=x.device))
-        b = (5 + 95 * torch.rand(1, device=x.device)) * (self.n_pixels_target / self.n_pixels_original)
+        b = (5 + 95 * torch.rand(1, device=x.device)) * (self.n_pixels_crop / self.n_pixels_target)
 
         p = torch.rand(1)
 
         if p > 0.5:
 
-            x = x + a * torch.exp(R2/b**2)
+            noise = a * torch.exp(-R2/b**2)
         else:
-            x = x + a * (1-torch.exp(-R2/b**2))
+            noise = a * (1-torch.exp(-R2/b**2))
 
-
-        return x
+        return x + noise
 
 
 class Normalize(nn.Module):
@@ -221,8 +222,10 @@ class Augmenter(nn.Module):
         self.offset = offset
 
         self.augment = nn.Sequential(
-            # RadialNormalization(n_pixels_original, n_pixels_target),
-            RandomGaussianBlur(0.1, 2.0),
+            RadialNormalization(n_pixels_original, self.crop, n_pixels_target),
+            transforms.RandomApply([
+                RandomGaussianBlur(0.1, 2.0),
+            ], p = 0.5),
             transforms.RandomRotation(360),
             transforms.RandomHorizontalFlip(),
             transforms.RandomAffine(degrees = 0, translate = translate, scale = scale, shear = 0),
@@ -296,20 +299,13 @@ class PhaseClassifier(pl.LightningModule):
                  backbone: nn.Module, 
                  loss: nn.Module, 
                  optimizer: torch.optim.Optimizer, 
-                 n_pixels: int, 
                  optimizer_params: Dict[str, Any] = {},
-                 training_params: Dict[str, Any] = {},
-                 *args: Any, 
-                 **kwargs: Any,):
+                 training_params: Dict[str, Any] = {}):
 
         super().__init__()
-
-        self.n_pixels   = n_pixels
         
         self.optimizer_params = optimizer_params
         self.training_params = training_params
-        self.kwargs     = kwargs
-        self.args       = args
 
         self.save_hyperparameters(
             "optimizer_params",
