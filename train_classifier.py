@@ -14,7 +14,7 @@ import time
 import matplotlib
 import utils
 from torchvision.models import resnet50
-from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix, accuracy_score
 import pandas as pd
 matplotlib.use('Agg')
 
@@ -25,7 +25,7 @@ def main():
     parser = argparse.ArgumentParser(description='Train a PACBED model')
 
     N_SAMPLES_PER_FILE  = 165
-    N_PIXELS_ORIGINAL   = 1040
+    N_PIXELS_ORIGINAL   = 1024
     N_PIXELS_TARGET     = 256
     CROP                = 510
     ETA                 = 1
@@ -73,7 +73,7 @@ def main():
     parser.add_argument('--precision', type=str, default=PRECISION)
     parser.add_argument('--name', type=str, default='')
     parser.add_argument("--debug", default=False)
-    parser.add_argument("--source", type=str, default="")
+    parser.add_argument("--metadata", type=str, default="")
     parser.add_argument("--energy", type=float, default=200)
     parser.add_argument("--convergence_angle", type=float, default=26.69)
 
@@ -86,7 +86,7 @@ def main():
     # Human readable time
     name = time.strftime("%Y%m%d-%H%M%S")
 
-    metadata = pd.read_csv(args.source)
+    metadata = pd.read_csv(args.metadata)
 
     train_augmenter = Augmenter(
         n_pixels_original=args.n_pixels_original, 
@@ -161,8 +161,15 @@ def main():
             'lr': args.lr,
             'momentum': args.momentum
         },
-        n_pixels=args.n_pixels_original, 
-        **vars(args))
+        training_params={
+            'optimizer': optimizer.__name__,
+            'loss': loss.__class__.__name__,
+            'backbone': backbone.__class__.__name__,
+            **vars(args)
+        })
+    
+    # Compile the model
+    compiled = torch.compile(model)
 
     torch.set_float32_matmul_precision(args.precision)
     trainer = pl.Trainer(
@@ -172,7 +179,14 @@ def main():
         logger=loggers,
         callbacks=checkpoints)
     
-    if args.checkpoint != '':
+    if args.checkpoint == "best":
+        chkpt = checkpoint.best_model_path
+        trainer.fit(model, 
+                    train_dataloaders=train_loader, 
+                    val_dataloaders=validation_loader,
+                    ckpt_path=chkpt)
+        
+    elif args.checkpoint != '':
         trainer.fit(model, 
                     train_dataloaders=train_loader, 
                     val_dataloaders=validation_loader,
@@ -187,28 +201,16 @@ def main():
     if not args.debug:
         trainer.save_checkpoint(f"{model_dir}/{name}_final.ckpt")
 
-    # Test model on data drawn from validation set
-    # print("\nTesting on data drawn from validation distribution:")
-    # trainer.test(dataloaders=test_loader, ckpt_path="best")
-
-    # Test on experimental data
-    # print("\nTesting on experimental data:")
-    # trainer.test(dataloaders=experimental_loader, ckpt_path="best")
-
     ###########################################
     # Test on data drawn from test set
     best_checkpoint = checkpoint.best_model_path
     model       = PhaseClassifier.load_from_checkpoint(
         best_checkpoint,
+        hparams_file=args.log_dir + "/hparams.yaml",
         backbone=backbone,
         optimizer=optimizer,
-        loss=loss,
-        optimizer_params={
-            'lr': args.lr,
-            'momentum': args.momentum
-        },
-        n_pixels=args.n_pixels_original, 
-        **vars(args))
+        loss=loss
+        )
     
     model.eval()
 
@@ -224,19 +226,20 @@ def main():
         y_pred.extend([p.cpu().numpy() for p in pred])
 
 
-    accuracy = (torch.tensor(y_true) == torch.tensor(y_pred)).float().mean().numpy()
-    
+    accuracy = accuracy_score(y_true, y_pred)    
     cm = confusion_matrix(y_true, y_pred)
 
+    print(f"Accuracy: {accuracy}")
+
     disp = ConfusionMatrixDisplay(cm, 
-                                display_labels=[c for c in metadata["Filename"].unique()])
+                                display_labels=[c for c in metadata["Phase"].unique()])
     disp.plot()
-    plt.savefig(f"{model_dir}/{name}_confusion_matrix.png")
+    plt.savefig(f"{args.log_dir}/{name}_confusion_matrix.png")
 
     csv_path = loggers[0].experiment.metrics_file_path
     f, ax, df = utils.visualize_classification_metrics_csv(csv_path, figsize=(5, 5), dpi=300)
     ax.set_title("Cross-entropy loss for phase classification")
-    plt.show()
+    plt.savefig(f"{args.log_dir}/{name}_loss.png")
 
 
     end = time.time()
