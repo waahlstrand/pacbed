@@ -22,8 +22,8 @@ def visualize_classification_metrics_csv(csv_path: Path, **kwargs) -> Tuple[matp
     train_loss = df[["step", "train_loss_epoch"]].dropna()
     val_loss = df[["step", "val_loss"]].dropna()
 
-    ax.semilogy(train_loss["step"], train_loss["train_loss_epoch"], label="train_loss")
-    ax.semilogy(val_loss["step"], val_loss["val_loss"], label="val_loss")
+    ax.semilogy(train_loss["step"], train_loss["train_loss_epoch"], label="training loss")
+    ax.semilogy(val_loss["step"], val_loss["val_loss"], label="validation loss")
 
     if 'train_acc' in df.columns:
         ax.plot(df['step'], df['train_acc'], label='train_acc')
@@ -32,10 +32,10 @@ def visualize_classification_metrics_csv(csv_path: Path, **kwargs) -> Tuple[matp
         ax.plot(df['step'], df['val_acc'], label='val_acc')
 
     ax.legend()
-    ax.set_xlabel('Epoch')
+    ax.set_xlabel('Training step')
     ax.set_ylabel('Loss')
 
-    return fig, ax, df
+    return fig, ax, train_loss, val_loss
 
 
 def scatter_hist(x: np.ndarray, y: np.ndarray, left: float = 0.1, width: float = 0.65, bottom: float = 0.1, height: float = 0.65, spacing: float = 0.005) -> Tuple[matplotlib.figure.Figure, plt.Axes, plt.Axes, plt.Axes]:
