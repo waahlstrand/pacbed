@@ -8,6 +8,7 @@ tensorflow/
 version_*
 phases/
 test.py
+.vscode/
 
 # File types
 *.bin
@@ -20,3 +21,5 @@ test.py
 *.pyc
 *.csv
 *.json
+*.zip
+*.out
