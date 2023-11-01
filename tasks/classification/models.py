@@ -6,32 +6,10 @@ from pathlib import Path
 from typing import *
 from torchmetrics import MetricCollection, Accuracy, Precision, AUROC, ConfusionMatrix
 from ..models import BaseModel, Naive
+import argparse
 
 Batch 		= Tuple[Tensor, Dict[str, Tensor]]
 StepOutput 	= Dict[str, Tensor]
-
-
-def build_model(
-    model_name: str, n_classes: int = 4, pretrained: bool = False
-) -> nn.Module:
-    
-    # To ensure we have three initial channels, as prescribed by most models
-    pre_conv = nn.Sequential(
-            nn.Conv2d(1, 3, 3, stride = 1, padding = 0),
-            nn.ReLU(),
-        )
-
-    if "resnet" in model_name:
-        backbone = torchvision.models.__dict__[model_name](pretrained=pretrained)
-        backbone.fc = nn.Linear(backbone.fc.in_features, n_classes)
-    elif "naive" in model_name:
-        backbone = Naive(n_classes=n_classes)
-    else:
-        raise NotImplementedError
-    
-    backbone = nn.Sequential(pre_conv, backbone)
-
-    return backbone
 
 class Classifier(BaseModel):
 
@@ -96,3 +74,30 @@ class Classifier(BaseModel):
         })
 
         return metrics
+
+def build_model(args: argparse.Namespace, n_classes: int = 4) -> nn.Module:
+    
+    # To ensure we have three initial channels, as prescribed by most models
+    pre_conv = nn.Sequential(
+            nn.Conv2d(1, 3, 3, stride = 1, padding = 0),
+            nn.ReLU(),
+        )
+    
+    if "resnet" in args.backbone:
+        backbone = torchvision.models.__dict__[args.backbone](pretrained=args.pretrained)
+        backbone.fc = nn.Linear(backbone.fc.in_features, n_classes)
+    elif "naive" in args.backbone:
+        backbone = Naive(n_classes=n_classes)
+    else:
+        raise NotImplementedError
+    
+    backbone = nn.Sequential(pre_conv, backbone)
+
+    try:
+        backbone = torch.compile(backbone, mode="reduce-overhead")
+    except:
+        pass
+
+    model = Classifier(backbone, target=args.target, lr = args.lr, weight_decay = args.weight_decay)
+
+    return model

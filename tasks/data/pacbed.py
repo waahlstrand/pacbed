@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from .. import utils
+from .augmentation import Augmenter
 
 def process_pacbed_from_file(file: str, shape: Tuple[int, int, int]):
     """
@@ -275,6 +276,39 @@ class PACBEDDataModule(L.LightningDataModule):
 
 
 
+def build_datamodule(args) -> PACBEDDataModule:
 
+    train_transforms = Augmenter(
+        n_pixels_original=args.original_size, 
+        n_pixels_target=args.target_size, 
+        crop=args.crop, 
+        eta=args.eta,
+        translate=(0.01, 0.01),
+        p_occlusion=args.p_occlusion
+        )
+    
+    val_transforms = Augmenter(
+        n_pixels_original=args.original_size, 
+        n_pixels_target=args.target_size, 
+        crop=args.crop, 
+        eta=args.eta,
+        translate=(0.01, 0.01),
+        p_occlusion=0
+        )
 
+    dm = PACBEDDataModule(
+        simulated_metadata_path     = Path(args.simulated_metadata_file),
+        simulated_src_path          = Path(args.simulated_src_path),
+        experimental_metadata_path  = Path(args.experimental_metadata_file),
+        experimental_src_path       = Path(args.experimental_src_path),
+        target                      = args.target,
+        batch_size                  = args.batch_size,
+        n_workers                   = args.n_workers,
+        n_train_samples             = args.n_train_samples,
+        n_val_samples               = args.n_valid_samples,
+        n_test_samples              = args.n_test_samples,
+        train_transforms            = train_transforms,
+        val_transforms              = val_transforms,
+    )
 
+    return dm

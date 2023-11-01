@@ -8,8 +8,8 @@ import yaml
 from pathlib import Path
 
 from tasks.classification.models import Classifier, build_model
-from tasks.data.pacbed import PACBEDDataModule
-from tasks.augmentation import Augmenter
+from tasks.data.pacbed import build_datamodule
+from tasks.data.augmentation import Augmenter
 
 import warnings
 
@@ -85,59 +85,11 @@ def fit(args: argparse.Namespace):
 
     ################### DATA ###################
     # Create the data module
-    train_transforms = Augmenter(
-        n_pixels_original=args.original_size, 
-        n_pixels_target=args.target_size, 
-        crop=args.crop, 
-        eta=args.eta,
-        translate=(0.01, 0.01),
-        p_occlusion=args.p_occlusion
-        )
-    
-    val_transforms = Augmenter(
-        n_pixels_original=args.original_size, 
-        n_pixels_target=args.target_size, 
-        crop=args.crop, 
-        eta=args.eta,
-        translate=(0.01, 0.01),
-        p_occlusion=0
-        )
-
-    dm = PACBEDDataModule(
-        simulated_metadata_path     = Path(args.simulated_metadata_file),
-        simulated_src_path          = Path(args.simulated_src_path),
-        experimental_metadata_path  = Path(args.experimental_metadata_file),
-        experimental_src_path       = Path(args.experimental_src_path),
-        target                      = args.target,
-        batch_size                  = args.batch_size,
-        n_workers                   = args.n_workers,
-        n_train_samples             = args.n_train_samples,
-        n_val_samples               = args.n_valid_samples,
-        n_test_samples              = args.n_test_samples,
-        train_transforms            = train_transforms,
-        val_transforms              = val_transforms,
-    )
+    dm = build_datamodule(args)
 
     ################### MODEL ###################
     # Create the model
-    backbone = build_model(
-        args.backbone, 
-        pretrained = args.pretrained
-        )
-
-    # Create the classifier
-    model = Classifier(
-        backbone, 
-        target       = args.target, 
-        lr           = args.lr, 
-        weight_decay = args.weight_decay
-        )
-
-    # Try to compile the model
-    # try: 
-    #     model = torch.compile(model, mode="reduce-overhead")
-    # except:
-    #     pass
+    model = build_model(args)
 
     ################### TRAINER ###################
     torch.set_float32_matmul_precision(args.precision)
