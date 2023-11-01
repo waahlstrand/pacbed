@@ -1,76 +1,169 @@
-#%%
-from models.regression import PACBED, Augmenter
-from data.regression import PACBEDDataset, FixedPACBEDDataset, InMemoryPACBEDDataset, generate_test_dataset_into_directory
-from torch.utils.data import DataLoader, RandomSampler
-import pytorch_lightning as pl
-import matplotlib.pyplot as plt
 import torch
-from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
+import lightning as L
+from lightning.pytorch.loggers import CSVLogger, WandbLogger
+from lightning.pytorch.callbacks import ModelCheckpoint
+from typing import *
+import argparse
+import yaml
 from pathlib import Path
+
+from tasks.classification.models import Classifier, build_model
+from tasks.data.pacbed import PACBEDDataModule
+from tasks.augmentation import Augmenter
+
 import warnings
+
 warnings.filterwarnings("ignore")
 
-N_SAMPLES_PER_FILE  = 165
-N_PIXELS_ORIGINAL   = 1040
-N_PIXELS_TARGET     = 256
-CROP                = 225
-ETA                 = 1
-FILES               = [""]
-TEST_ROOT           = Path("./data/test")
-BATCH_SIZE          = 128
-N_WORKERS           = 32
-N_SAMPLES           = int(1e3 * BATCH_SIZE)
-N_TEST              = int(1e2)
-N_VALIDATION        = int(1e2 * BATCH_SIZE)
-LR                  = 1e-4
-SEED                = 42
+def main():
 
-torch.manual_seed(SEED)
-#%%
-augmenter   = Augmenter(n_pixels=N_PIXELS_TARGET, crop=CROP, eta=0)
-# logger      = TensorBoardLogger("./logs", name="test")
-logger      = CSVLogger("./logs", name="test")
+    parser = argparse.ArgumentParser(description='Train a PACBED model')
+
+    parser.add_argument('--config', '-c', type=str, default='')
+
+    parser.add_argument('--simulated_metadata_file', type=str, default='')
+    parser.add_argument('--simulated_src_path', type=str, default='')
+    parser.add_argument('--experimental_metadata_file', type=str, default='')
+    parser.add_argument('--experimental_src_path', type=str, default='')
+    parser.add_argument('--logs_root', type=str, default='')
+    parser.add_argument('--precision', type=str, default='medium')
+    parser.add_argument('--device', type=str, default='gpu')
+    parser.add_argument('--target', type=str, default='Phase index')
+
+    parser.add_argument('--eta', type=float, default=0.8)
+    parser.add_argument('--lr', type=float, default=0.0001)
+    parser.add_argument('--momentum', type=float, default=0.99)
+    parser.add_argument('--weight_decay', type=float, default=0.0001)
+    parser.add_argument('--p_occlusion', type=float, default=0.4)
+    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--original_size', type=int, default=1024)
+    parser.add_argument('--target_size', type=int, default=256)
+    parser.add_argument('--crop', type=int, default=510)
+
+    parser.add_argument('--n_epochs', type=int, default=100)
+    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--n_workers', type=int, default=32)
+    parser.add_argument('--n_train_samples', type=int, default=1000)
+    parser.add_argument('--n_valid_samples', type=int, default=100)
+    parser.add_argument('--n_test_samples', type=int, default=1000)
+
+    parser.add_argument('--checkpoint', type=str, default='')
+    parser.add_argument('--debug', type=bool, default=False)
+
+    parser.add_argument('--backbone', type=str, default='resnet50')
+    parser.add_argument('--pretrained', type=bool, default=True)
+
+    args = parser.parse_args()
+
+    if args.config != '':
+        with open(args.config, 'r') as f:
+            config = yaml.safe_load(f)
+            args.__dict__.update(config)
+
+    fit(args)
 
 
-#%%
-# Create training set
-train_set       = PACBEDDataset(files = FILES, n_samples = N_SAMPLES_PER_FILE, n_pixels=N_PIXELS_ORIGINAL, transforms=augmenter)
-train_sampler   = RandomSampler(train_set, replacement=True, num_samples=N_SAMPLES)
-train_loader    = DataLoader(train_set, batch_size=BATCH_SIZE, num_workers=N_WORKERS, sampler=train_sampler, pin_memory=True)
+def fit(args: argparse.Namespace):
 
-# Create validation set
-# validation_sampler          = RandomSampler(train_set, replacement=True, num_samples=N_VALIDATION)
-# validation_initial_loader   = DataLoader(train_set, batch_size=BATCH_SIZE, num_workers=N_WORKERS, sampler=validation_sampler, pin_memory=True)
-# validation_set              = InMemoryPACBEDDataset.from_dataloader(validation_initial_loader)
-# validation_loader           = DataLoader(validation_set, batch_size=BATCH_SIZE, num_workers=N_WORKERS, pin_memory=True)
+    # Set the random seed
+    L.seed_everything(args.seed)
 
-# Create test set
-# If test set does not exist, create it
-if not Path(TEST_ROOT).exists():
+    # Create the loggers
+    loggers = [
+        CSVLogger(args.logs_root, name=args.backbone),
+        WandbLogger(name=args.backbone, project='pacbed-classification'),
+    ]
 
-    generate_test_dataset_into_directory(files = FILES, 
-                                        target_dir = TEST_ROOT, 
-                                        n_samples = N_TEST, 
-                                        n_pixels=N_PIXELS_ORIGINAL, 
-                                        n_samples_per_file=N_SAMPLES_PER_FILE, 
-                                        augmenter=augmenter,
-                                        n_workers=N_WORKERS)
+    # Setup checkpointing
+    checkpointing = ModelCheckpoint(
+        monitor='val_loss',
+        dirpath=args.logs_root,
+        filename='{epoch:02d}-{val_loss:.2f}',
+        save_top_k=1,
+        mode='min',
+    )
 
-test_set       = FixedPACBEDDataset(root = TEST_ROOT)
-test_loader    = DataLoader(test_set, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
+    ################### DATA ###################
+    # Create the data module
+    train_transforms = Augmenter(
+        n_pixels_original=args.original_size, 
+        n_pixels_target=args.target_size, 
+        crop=args.crop, 
+        eta=args.eta,
+        translate=(0.01, 0.01),
+        p_occlusion=args.p_occlusion
+        )
+    
+    val_transforms = Augmenter(
+        n_pixels_original=args.original_size, 
+        n_pixels_target=args.target_size, 
+        crop=args.crop, 
+        eta=args.eta,
+        translate=(0.01, 0.01),
+        p_occlusion=0
+        )
 
-#%%
-# Visualize some samples from training set
-# x, y = train_set[100]
-# x, y = next(iter(train_loader))
-# plt.imshow(x[0, :, :, :].squeeze())
+    dm = PACBEDDataModule(
+        simulated_metadata_path     = Path(args.simulated_metadata_file),
+        simulated_src_path          = Path(args.simulated_src_path),
+        experimental_metadata_path  = Path(args.experimental_metadata_file),
+        experimental_src_path       = Path(args.experimental_src_path),
+        target                      = args.target,
+        batch_size                  = args.batch_size,
+        n_workers                   = args.n_workers,
+        n_train_samples             = args.n_train_samples,
+        n_val_samples               = args.n_valid_samples,
+        n_test_samples              = args.n_test_samples,
+        train_transforms            = train_transforms,
+        val_transforms              = val_transforms,
+    )
 
-#%%
-# Define model
-model       = PACBED(backbone="resnet34", n_pixels=N_PIXELS_TARGET, lr=LR)
-#%%
-torch.set_float32_matmul_precision('medium')
-trainer = pl.Trainer(accelerator="gpu", devices=1, max_epochs=10, logger=logger)
-trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=test_loader)
+    ################### MODEL ###################
+    # Create the model
+    backbone = build_model(
+        args.backbone, 
+        pretrained = args.pretrained
+        )
 
-# %%
+    # Create the classifier
+    model = Classifier(
+        backbone, 
+        target       = args.target, 
+        lr           = args.lr, 
+        weight_decay = args.weight_decay
+        )
+
+    # Try to compile the model
+    # try: 
+    #     model = torch.compile(model, mode="reduce-overhead")
+    # except:
+    #     pass
+
+    ################### TRAINER ###################
+    torch.set_float32_matmul_precision(args.precision)
+
+    trainer = L.Trainer(
+        accelerator             = args.device,
+        devices                 = [0],
+        logger                  = loggers,
+        callbacks               = [ checkpointing ],
+        max_epochs              = args.n_epochs,
+        fast_dev_run            = True if args.debug else False,
+    )
+
+    ################### FIT ###################
+    trainer.fit(
+        model, 
+        dm,
+        ckpt_path = args.checkpoint if args.checkpoint != '' else None,
+        )
+
+    ################### TEST ###################
+    trainer.test(model, dm)
+
+if __name__ == '__main__':
+    main()
+
+
+
+
