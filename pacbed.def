@@ -1,0 +1,11 @@
+Bootstrap: docker
+From: continuumio/miniconda3:23.9.0-0
+
+%post
+    /opt/conda/bin/conda install -y pip pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+    /opt/conda/bin/conda install -y lightning -c conda-forge
+    /opt/conda/bin/conda install -y matplotlib
+    /opt/conda/bin/conda install -y pandas
+    /opt/conda/bin/conda install -y tqdm
+    /opt/conda/bin/conda install -y scikit-image
+    /opt/conda/bin/conda install -y scikit-learn

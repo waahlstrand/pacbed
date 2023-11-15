@@ -9,6 +9,7 @@ version_*
 phases/
 test.py
 .vscode/
+/configs/
 
 # File types
 *.bin

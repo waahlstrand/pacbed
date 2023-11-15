@@ -1,7 +1,7 @@
 import torch
 import lightning as L
 from lightning.pytorch.loggers import CSVLogger, WandbLogger
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import ModelCheckpoint, RichModelSummary, RichProgressBar
 from typing import *
 import argparse
 import yaml
@@ -76,7 +76,8 @@ def fit(args: argparse.Namespace):
 
     # Setup checkpointing
     checkpointing = ModelCheckpoint(
-        monitor='val_loss',
+        monitor='val_accuracy',
+        mode='max',
         dirpath=args.logs_root,
         filename='{epoch:02d}-{val_loss:.2f}',
         save_top_k=1,
