@@ -10,6 +10,7 @@ phases/
 test.py
 .vscode/
 /configs/
+/wandb/
 
 # File types
 *.bin
