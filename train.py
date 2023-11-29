@@ -81,7 +81,6 @@ def fit(args: argparse.Namespace):
         dirpath=args.logs_root,
         filename='{epoch:02d}-{val_loss:.2f}',
         save_top_k=1,
-        mode='min',
     )
 
     ################### DATA ###################
