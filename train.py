@@ -49,6 +49,7 @@ def main():
 
     parser.add_argument('--checkpoint', type=str, default='')
     parser.add_argument('--debug', type=bool, default=False)
+    parser.add_argument('--log', type=bool, default=False)
 
     parser.add_argument('--backbone', type=str, default='resnet50')
     parser.add_argument('--pretrained', type=bool, default=True)
@@ -71,9 +72,11 @@ def fit(args: argparse.Namespace):
     # Create the loggers
     loggers = [
         CSVLogger(args.logs_root, name=args.backbone),
-        WandbLogger(name=args.backbone, project='pacbed-classification'),
     ]
-
+    
+    if args.log:
+        loggers += [WandbLogger(name=args.backbone, project='pacbed-classification')]
+        
     # Setup checkpointing
     checkpointing = ModelCheckpoint(
         monitor='val_accuracy',
