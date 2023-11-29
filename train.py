@@ -112,6 +112,9 @@ def fit(args: argparse.Namespace):
         dm,
         ckpt_path = args.checkpoint if args.checkpoint != '' else None,
         )
+    
+    # Save last checkpoint
+    trainer.save_checkpoint(f"{args.logs_root}/last.ckpt")
 
     ################### TEST ###################
     trainer.test(model, dm)
