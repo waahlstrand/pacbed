@@ -93,10 +93,10 @@ def build_model(args: argparse.Namespace, n_classes: int = 4) -> nn.Module:
     
     backbone = nn.Sequential(pre_conv, backbone)
 
-    try:
-        backbone = torch.compile(backbone, mode="reduce-overhead")
-    except:
-        pass
+    # try:
+        # backbone = torch.compile(backbone, mode="reduce-overhead")
+    # except:
+        # pass
 
     model = Classifier(backbone, target=args.target, lr = args.lr, weight_decay = args.weight_decay)
 
