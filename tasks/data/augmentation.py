@@ -61,7 +61,7 @@ class Normalize(nn.Module):
 
 class AddNoise(nn.Module):
 
-    def __init__(self, eta):
+    def __init__(self, eta: float | str):
 
         super().__init__()
 
@@ -69,7 +69,12 @@ class AddNoise(nn.Module):
 
     def forward(self, x: torch.Tensor):
 
-        return self.add_noise(x, self.eta)
+        if self.eta == "random":
+            eta = torch.rand(1, device=x.device)
+        else:
+            eta = self.eta
+
+        return self.add_noise(x, eta)
 
     def add_noise(self, x: torch.Tensor, eta: float):
 
@@ -194,7 +199,7 @@ class Augmenter(nn.Module):
                  n_pixels_original: int, 
                  n_pixels_target: int,
                  crop: int, 
-                 eta: float, 
+                 eta: float | str = 0.1, 
                  scaling="linear", 
                  translate: Union[float, Tuple[float, float]] = (0.05, 0.05),
                  scale: Union[float, Tuple[float, float]] = (0.95, 1.05),
