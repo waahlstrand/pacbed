@@ -175,13 +175,13 @@ class PACBEDDataset(Dataset):
 
             # Apply transforms
             sample = torch.tensor(sample)
-            if self.transforms is not None:
-                sample = self.transforms(sample)
 
         else:
             sample = torch.tensor(self.x[idx])
             target = self.y[idx]
-            
+
+        if self.transforms is not None:
+            sample = self.transforms(sample)            
         
         return sample, target
         
@@ -221,7 +221,6 @@ class InMemoryPACBEDPhaseDataset(Dataset):
             # Batch has shape 
             # x: (batch_size, 1, n_pixels, n_pixels)
             # y: Dict[str, Tensor]
-
             x.append(batch[0].to("cpu"))
 
             # Transform into a list of dicts
