@@ -9,6 +9,7 @@ import pandas as pd
 from tqdm import tqdm
 from .. import utils
 from .augmentation import Augmenter
+import os
 
 def process_pacbed_from_file(file: str, shape: Tuple[int, int, int]):
     """
@@ -109,44 +110,57 @@ class ExperimentalDataset(Dataset):
 
 class PACBEDDataset(Dataset):
 
-    def __init__(self, x: np.array, y: List[Dict[str, Any]], transforms = None, n_classes: int = 0) -> None:
+    def __init__(self, metadata_path: Path, src_path: Path, transforms = None, target: str = "Phase index"
+                 ) -> None:
         super().__init__()
 
-
+        self.metadata_path = metadata_path
+        self.src_path = src_path
         self.transforms = transforms
-        self.n_classes  = n_classes
+        self.target = target
 
-        self.x = x
-        self.y = y
+        self.metadata = pd.read_csv(metadata_path)
+        self.metadata["Filename"] =  self.metadata["Filename"].apply(lambda x: os.path.join(src_path, x))
+        
+        self.n_classes = len( self.metadata[target].unique())
+        self.n_files = len( self.metadata)
+        self.n_samples =  self.metadata["DimZ"].sum()
+
+        self.index_to_file_map = {}
+
+        for file_idx, row in  self.metadata.iterrows():
+            for sample_in_file_idx in range(row["DimZ"]):
+                self.index_to_file_map[len(self.index_to_file_map)] = file_idx
+                
 
     def __len__(self):
-        return len(self.x)
+        return self.n_samples
 
     def __getitem__(self, idx):
 
-        x = torch.tensor(self.x[idx, :, :, :])
-        y = {key: torch.tensor(value) for key, value in self.y[idx].items() if not isinstance(value, str)}
+        # Get the file index and the sample index within the file
+        file_idx = self.index_to_file_map[idx]
+        sample_in_file_idx = idx - sum(self.metadata["DimZ"].iloc[:file_idx])
 
-        if self.transforms:
-            return self.transforms(x), y
-        else:
-            return x, y
-        
-    @classmethod
-    def from_files(cls, metadata_path: Path, src_path: Path, transforms = None, target: str = "Phase index") -> "PACBEDDataset":
-        
+        # Get the file and the sample
+        file = self.metadata["Filename"].iloc[file_idx]
+        sample = process_pacbed_from_file(file, (self.metadata["DimX"].iloc[file_idx], self.metadata["DimY"].iloc[file_idx], self.metadata["DimZ"].iloc[file_idx]))[sample_in_file_idx]
 
-        # Read the metadata and add the root path to the filenames
-        metadata = pd.read_csv(metadata_path)
-        metadata["Filename"] = metadata["Filename"].apply(lambda x: src_path / x)
-        n_classes = len(metadata[target].unique())
+        # Get the thickness
+        thickness = sample_in_file_idx + 1
 
-        # Read the PACBED images and metadata
-        x, y = process_multiple_pacbed_from_metadata(metadata)
+        # Get the target
+        target = self.metadata[self.target].iloc[file_idx]
 
-        return cls(x, y, transforms, n_classes)
+        # Apply transforms
+        sample = torch.tensor(sample)
+        if self.transforms is not None:
+            sample = self.transforms(sample)
 
-
+        return sample, {
+            "thickness": thickness,
+            self.target: target
+        }
         
 class InMemoryPACBEDPhaseDataset(Dataset):
     """
@@ -233,12 +247,11 @@ class PACBEDDataModule(L.LightningDataModule):
         
         if stage == "fit" or stage is None:
             # Create a dataset from the generated data, augmented with train transforms
-            self.train_set              = PACBEDDataset.from_files(self.simulated_metadata_path, self.simulated_src_path, self.train_transforms, self.target)
+            self.train_set              = PACBEDDataset(self.simulated_metadata_path, self.simulated_src_path, self.train_transforms, self.target)
             self.train_sampler          = RandomSampler(self.train_set, replacement=True, num_samples=self.n_train_samples)
             
             # Create a dataset from the generated data, augmented with val transforms
-            # This dataset is continuously augmented and generated, thus not fixed
-            self.realistic_set          = PACBEDDataset(self.train_set.x, self.train_set.y, self.val_transforms, self.target)
+            self.realistic_set          = PACBEDDataset(self.simulated_metadata_path, self.simulated_src_path, self.val_transforms, self.target)
             self.realistic_sampler      = RandomSampler(self.realistic_set, replacement=True, num_samples=self.n_val_samples)
             self.realistic_loader       = DataLoader(self.realistic_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=self.realistic_sampler, pin_memory=True)
 
@@ -249,8 +262,8 @@ class PACBEDDataModule(L.LightningDataModule):
         elif stage == "test":
 
             # Create a fixed test dataset to be used at the end of training
-            self.test_initial_loader    = DataLoader(self.realistic_set, batch_size=self.batch_size, num_workers=self.n_workers, pin_memory=True)
-            self.test_sampler           = RandomSampler(self.test_initial_loader, replacement=True, num_samples=self.n_test_samples)
+            self.test_sampler           = RandomSampler(self.realistic_set, replacement=True, num_samples=self.n_test_samples)
+            self.test_initial_loader    = DataLoader(self.realistic_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=self.test_sampler, pin_memory=True)
             self.test_set               = InMemoryPACBEDPhaseDataset.from_dataloader(self.test_initial_loader)
         
             # Create a test set from experimental data
@@ -270,7 +283,7 @@ class PACBEDDataModule(L.LightningDataModule):
     def test_dataloader(self) -> DataLoader:
 
         return [
-            DataLoader(self.test_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=self.test_sampler, pin_memory=True),
+            DataLoader(self.test_set, batch_size=self.batch_size, num_workers=self.n_workers, pin_memory=True),
             DataLoader(self.experimental_set, batch_size=self.batch_size, num_workers=self.n_workers, pin_memory=True)
             ]
 
