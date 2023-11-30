@@ -110,7 +110,14 @@ class ExperimentalDataset(Dataset):
 
 class PACBEDDataset(Dataset):
 
-    def __init__(self, metadata_path: Path, src_path: Path, transforms = None, target: str = "Phase index"
+    def __init__(self, 
+                 metadata_path: Path, 
+                 src_path: Path, 
+                 transforms = None, 
+                 target: str = "Phase index",
+                 convergence_angle_index: int | None = None,
+                 energy_index: int | None = None,
+                 max_files_in_memory: int = 30,
                  ) -> None:
         super().__init__()
 
@@ -118,9 +125,16 @@ class PACBEDDataset(Dataset):
         self.src_path = src_path
         self.transforms = transforms
         self.target = target
+        self.max_files_in_memory = max_files_in_memory
 
         self.metadata = pd.read_csv(metadata_path)
         self.metadata["Filename"] =  self.metadata["Filename"].apply(lambda x: os.path.join(src_path, x))
+
+        if convergence_angle_index is not None:
+            self.metadata = self.metadata[self.metadata["Convergence angle index"] == convergence_angle_index]
+
+        if energy_index is not None:
+            self.metadata = self.metadata[self.metadata["Energy index"] == energy_index]
         
         self.n_classes = len( self.metadata[target].unique())
         self.n_files = len( self.metadata)
@@ -131,6 +145,11 @@ class PACBEDDataset(Dataset):
         for file_idx, row in  self.metadata.iterrows():
             for sample_in_file_idx in range(row["DimZ"]):
                 self.index_to_file_map[len(self.index_to_file_map)] = file_idx
+        
+        # print(self.n_files, self.max_files_in_memory)
+        if self.n_files < self.max_files_in_memory:
+            self.x, self.y = process_multiple_pacbed_from_metadata(self.metadata)
+            
                 
 
     def __len__(self):
@@ -138,29 +157,33 @@ class PACBEDDataset(Dataset):
 
     def __getitem__(self, idx):
 
-        # Get the file index and the sample index within the file
-        file_idx = self.index_to_file_map[idx]
-        sample_in_file_idx = idx - sum(self.metadata["DimZ"].iloc[:file_idx])
+        if self.n_files > self.max_files_in_memory:
 
-        # Get the file and the sample
-        file = self.metadata["Filename"].iloc[file_idx]
-        sample = process_pacbed_from_file(file, (self.metadata["DimX"].iloc[file_idx], self.metadata["DimY"].iloc[file_idx], self.metadata["DimZ"].iloc[file_idx]))[sample_in_file_idx]
+            # Get the file index and the sample index within the file
+            file_idx = self.index_to_file_map[idx]
+            sample_in_file_idx = idx - sum(self.metadata["DimZ"].iloc[:file_idx])
 
-        # Get the thickness
-        thickness = sample_in_file_idx + 1
+            # Get the file and the sample
+            file = self.metadata["Filename"].iloc[file_idx]
+            sample = process_pacbed_from_file(file, (self.metadata["DimX"].iloc[file_idx], self.metadata["DimY"].iloc[file_idx], self.metadata["DimZ"].iloc[file_idx]))[sample_in_file_idx]
 
-        # Get the target
-        target = self.metadata[self.target].iloc[file_idx]
+            # Get the thickness
+            thickness = sample_in_file_idx + 1
 
-        # Apply transforms
-        sample = torch.tensor(sample)
-        if self.transforms is not None:
-            sample = self.transforms(sample)
+            # Get the target
+            target = self.metadata[self.target].iloc[file_idx]
 
-        return sample, {
-            "thickness": thickness,
-            self.target: target
-        }
+            # Apply transforms
+            sample = torch.tensor(sample)
+            if self.transforms is not None:
+                sample = self.transforms(sample)
+
+        else:
+            sample = torch.tensor(self.x[idx])
+            target = self.y[idx]
+            
+        
+        return sample, target
         
 class InMemoryPACBEDPhaseDataset(Dataset):
     """
@@ -199,7 +222,7 @@ class InMemoryPACBEDPhaseDataset(Dataset):
             # x: (batch_size, 1, n_pixels, n_pixels)
             # y: Dict[str, Tensor]
 
-            x.append(batch[0])
+            x.append(batch[0].to("cpu"))
 
             # Transform into a list of dicts
             y = [{key: value[i] for key, value in batch[1].items()} for i in range(len(batch[0]))]
@@ -224,6 +247,8 @@ class PACBEDDataModule(L.LightningDataModule):
                  n_train_samples: int = 1000,
                  n_val_samples: int = 1000,
                  n_test_samples: int = 1000,
+                 convergence_angle_index: int | None = None,
+                 energy_index: int | None = None,
                  ) -> None:
         super().__init__()
 
@@ -242,16 +267,19 @@ class PACBEDDataModule(L.LightningDataModule):
         self.train_transforms = train_transforms
         self.val_transforms = val_transforms
 
+        self.convergence_angle_index = convergence_angle_index
+        self.energy_index = energy_index
+
 
     def setup(self, stage: Optional[str] = None) -> None:
         
         if stage == "fit" or stage is None:
             # Create a dataset from the generated data, augmented with train transforms
-            self.train_set              = PACBEDDataset(self.simulated_metadata_path, self.simulated_src_path, self.train_transforms, self.target)
+            self.train_set              = PACBEDDataset(self.simulated_metadata_path, self.simulated_src_path, self.train_transforms, self.target, self.convergence_angle_index, self.energy_index)
             self.train_sampler          = RandomSampler(self.train_set, replacement=True, num_samples=self.n_train_samples)
             
             # Create a dataset from the generated data, augmented with val transforms
-            self.realistic_set          = PACBEDDataset(self.simulated_metadata_path, self.simulated_src_path, self.val_transforms, self.target)
+            self.realistic_set          = PACBEDDataset(self.simulated_metadata_path, self.simulated_src_path, self.val_transforms, self.target, self.convergence_angle_index, self.energy_index)
             self.realistic_sampler      = RandomSampler(self.realistic_set, replacement=True, num_samples=self.n_val_samples)
             self.realistic_loader       = DataLoader(self.realistic_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=self.realistic_sampler, pin_memory=True)
 
@@ -322,6 +350,8 @@ def build_datamodule(args) -> PACBEDDataModule:
         n_test_samples              = args.n_test_samples,
         train_transforms            = train_transforms,
         val_transforms              = val_transforms,
+        convergence_angle_index     = args.convergence_angle_index,
+        energy_index                = args.energy_index,
     )
 
     return dm

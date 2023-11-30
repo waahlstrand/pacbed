@@ -39,6 +39,8 @@ def main():
     parser.add_argument('--original_size', type=int, default=1024)
     parser.add_argument('--target_size', type=int, default=256)
     parser.add_argument('--crop', type=int, default=510)
+    parser.add_argument('--convergence_angle_index', type=int, default=4)
+    parser.add_argument('--energy_index', type=int, default=4)
 
     parser.add_argument('--n_epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=32)
