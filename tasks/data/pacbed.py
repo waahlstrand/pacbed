@@ -289,9 +289,9 @@ class PACBEDDataModule(L.LightningDataModule):
         elif stage == "test":
 
             # Create a fixed test dataset to be used at the end of training
-            self.test_sampler           = RandomSampler(realistic_set, replacement=True, num_samples=self.n_test_samples)
-            self.test_initial_loader    = DataLoader(realistic_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=self.test_sampler, pin_memory=True)
-            self.test_set               = InMemoryPACBEDPhaseDataset.from_dataloader(self.test_initial_loader)
+            test_sampler           = RandomSampler(realistic_set, replacement=True, num_samples=self.n_test_samples)
+            test_initial_loader    = DataLoader(realistic_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=test_sampler, pin_memory=True)
+            self.test_set               = InMemoryPACBEDPhaseDataset.from_dataloader(test_initial_loader)
         
             # Create a test set from experimental data
             self.experimental_set       = ExperimentalDataset(self.experimental_metadata_path, self.experimental_src_path)
