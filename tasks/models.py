@@ -95,6 +95,9 @@ class BaseModel(L.LightningModule):
 
         outs = self.step(batch, batch_idx, name="val")
 
+        # Detach the outputs to avoid memory leaks
+        outs = {k: v.detach() for k, v in outs.items()}
+
         ms = self.val_metrics(outs["y_hat"], outs["y"])
 
         self.log_dict({f"val_{k}": v for k, v in ms.items()}, on_step=False, on_epoch=True)

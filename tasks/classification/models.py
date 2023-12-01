@@ -52,9 +52,9 @@ class Classifier(BaseModel):
         loss = self.loss(y_hat, y)
 
         outs = {
-            "loss": loss.detach(),
-            "y_hat": y_hat,
-            "y": y,
+            "loss": loss,
+            "y_hat": y_hat.detach(),
+            "y": y.detach(),
         }
 
         return outs
