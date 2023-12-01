@@ -271,26 +271,26 @@ class PACBEDDataModule(L.LightningDataModule):
 
 
     def setup(self, stage: Optional[str] = None) -> None:
+
+        # Create a dataset from the generated data, augmented with val transforms
+        realistic_set          = PACBEDDataset(self.simulated_metadata_path, self.simulated_src_path, self.val_transforms, self.target, self.convergence_angle_index, self.energy_index)
+        realistic_sampler      = RandomSampler(realistic_set, replacement=True, num_samples=self.n_val_samples)
+        realistic_loader       = DataLoader(realistic_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=realistic_sampler, pin_memory=True)
         
         if stage == "fit" or stage is None:
             # Create a dataset from the generated data, augmented with train transforms
             self.train_set              = PACBEDDataset(self.simulated_metadata_path, self.simulated_src_path, self.train_transforms, self.target, self.convergence_angle_index, self.energy_index)
             self.train_sampler          = RandomSampler(self.train_set, replacement=True, num_samples=self.n_train_samples)
             
-            # Create a dataset from the generated data, augmented with val transforms
-            self.realistic_set          = PACBEDDataset(self.simulated_metadata_path, self.simulated_src_path, self.val_transforms, self.target, self.convergence_angle_index, self.energy_index)
-            self.realistic_sampler      = RandomSampler(self.realistic_set, replacement=True, num_samples=self.n_val_samples)
-            self.realistic_loader       = DataLoader(self.realistic_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=self.realistic_sampler, pin_memory=True)
-
             # Create a fixed dataset to be reused between epochs
-            self.val_set                = InMemoryPACBEDPhaseDataset.from_dataloader(self.realistic_loader)
+            self.val_set                = InMemoryPACBEDPhaseDataset.from_dataloader(realistic_loader)
             self.val_sampler            = RandomSampler(self.val_set, replacement=True)
 
         elif stage == "test":
 
             # Create a fixed test dataset to be used at the end of training
-            self.test_sampler           = RandomSampler(self.realistic_set, replacement=True, num_samples=self.n_test_samples)
-            self.test_initial_loader    = DataLoader(self.realistic_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=self.test_sampler, pin_memory=True)
+            self.test_sampler           = RandomSampler(realistic_set, replacement=True, num_samples=self.n_test_samples)
+            self.test_initial_loader    = DataLoader(realistic_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=self.test_sampler, pin_memory=True)
             self.test_set               = InMemoryPACBEDPhaseDataset.from_dataloader(self.test_initial_loader)
         
             # Create a test set from experimental data
