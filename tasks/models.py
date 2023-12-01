@@ -85,7 +85,7 @@ class BaseModel(L.LightningModule):
 
         outs = self.step(batch, batch_idx, name="train")
 
-        ms = self.train_metrics(outs["y_hat"], outs["y"])
+        ms = self.train_metrics(outs["y_hat"].detach(), outs["y"].detach())
 
         self.log_dict({f"train_{k}": v for k, v in ms.items()}, on_step=True, on_epoch=False)
              
