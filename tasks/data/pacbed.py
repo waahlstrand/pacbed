@@ -301,11 +301,11 @@ class PACBEDDataModule(L.LightningDataModule):
 
     def train_dataloader(self) -> DataLoader:
             
-        return DataLoader(self.train_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=self.train_sampler, pin_memory=True)
+        return DataLoader(self.train_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=self.train_sampler, pin_memory=False)
 
     def val_dataloader(self) -> DataLoader:
         
-        return DataLoader(self.val_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=self.val_sampler, pin_memory=True)
+        return DataLoader(self.val_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=self.val_sampler, pin_memory=False)
 
     def test_dataloader(self) -> DataLoader:
 
