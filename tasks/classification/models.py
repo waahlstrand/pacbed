@@ -52,7 +52,7 @@ class Classifier(BaseModel):
         loss = self.loss(y_hat, y)
 
         outs = {
-            "loss": loss,
+            "loss": loss.detach(),
             "y_hat": y_hat,
             "y": y,
         }
