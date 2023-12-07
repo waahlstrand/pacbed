@@ -88,6 +88,9 @@ class BaseModel(L.LightningModule):
         ms = self.train_metrics(outs["y_hat"].detach(), outs["y"].detach())
 
         self.log_dict({f"train_{k}": v for k, v in ms.items()}, on_step=True, on_epoch=False)
+
+        # Save loss for logging
+        self.log("train_loss", outs["loss"].detach(), on_step=True, on_epoch=False, prog_bar=True, logger=True)
              
         return outs["loss"]
     
@@ -102,6 +105,9 @@ class BaseModel(L.LightningModule):
 
         self.log_dict({f"val_{k}": v for k, v in ms.items()}, on_step=False, on_epoch=True)
 
+        # Save loss for logging
+        self.log("val_loss", outs["loss"].detach(), on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
         return outs
     
     def test_step(self, batch: Batch, batch_idx: int, dataloader_idx: int = 0) -> Tensor:
@@ -111,6 +117,9 @@ class BaseModel(L.LightningModule):
         ms = self.test_metrics(outs["y_hat"], outs["y"])
 
         self.log_dict({f"test_{k}": v for k, v in ms.items()}, on_step=False, on_epoch=True)
+
+        # Save loss for logging
+        self.log("test_loss", outs["loss"].detach(), on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
         return outs
     
