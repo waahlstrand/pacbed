@@ -86,7 +86,7 @@ def fit(args: argparse.Namespace):
     checkpointing = ModelCheckpoint(
         monitor='val_loss',
         mode='min',
-        dirpath=args.logs_root,
+        dirpath=loggers[0].log_dir,
         filename='{epoch:02d}',
         save_top_k=1,
     )
