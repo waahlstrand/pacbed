@@ -7,9 +7,9 @@ import argparse
 import yaml
 from pathlib import Path
 
-from tasks.classification.models import Classifier, build_model
+from tasks.classification.models import build_model
 from tasks.data.pacbed import build_datamodule
-from tasks.data.augmentation import Augmenter
+from tasks.callbacks import PlotImageCallback
 
 import warnings
 
@@ -21,6 +21,7 @@ def main():
 
     parser.add_argument('--config', '-c', type=str, default='')
 
+    parser.add_argument('--name', type=str, default='')
     parser.add_argument('--simulated_metadata_file', type=str, default='')
     parser.add_argument('--simulated_src_path', type=str, default='')
     parser.add_argument('--experimental_metadata_file', type=str, default='')
@@ -73,20 +74,22 @@ def fit(args: argparse.Namespace):
 
     # Create the loggers
     loggers = [
-        CSVLogger(args.logs_root, name=args.backbone),
+        CSVLogger(args.logs_root, name=args.name),
     ]
     
     if args.log:
-        loggers += [WandbLogger(name=args.backbone, project='pacbed-classification')]
+        loggers += [WandbLogger(name=args.name, project='pacbed-classification')]
         
     # Setup checkpointing
     checkpointing = ModelCheckpoint(
-        monitor='val_accuracy',
-        mode='max',
+        monitor='val_loss',
+        mode='min',
         dirpath=args.logs_root,
-        filename='{epoch:02d}-{val_loss:.2f}',
+        filename='{epoch:02d}',
         save_top_k=1,
     )
+
+    plot_callback = PlotImageCallback()
 
     ################### DATA ###################
     # Create the data module
@@ -103,7 +106,7 @@ def fit(args: argparse.Namespace):
         accelerator             = args.device,
         devices                 = [0],
         logger                  = loggers,
-        callbacks               = [ checkpointing ],
+        callbacks               = [ checkpointing, plot_callback ],
         max_epochs              = args.n_epochs,
         fast_dev_run            = True if args.debug else False,
     )

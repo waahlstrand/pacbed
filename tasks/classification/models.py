@@ -49,7 +49,10 @@ class Classifier(BaseModel):
         y_hat_logit = self(x)
         y_hat = torch.softmax(y_hat_logit, dim=1)
 
-        loss = self.loss(y_hat, y)
+        # print(y_hat.shape, y.shape)
+        # print(y_hat)
+
+        loss = self.loss(y_hat_logit, y)
 
         outs = {
             "loss": loss,
@@ -70,7 +73,7 @@ class Classifier(BaseModel):
             "accuracy": Accuracy(task=task, num_classes=self.n_classes),
             "precision": Precision(task=task, num_classes=self.n_classes, average="macro"),
             "auroc": AUROC(task=task, num_classes=self.n_classes),
-            # "cm": ConfusionMatrix(task=task, num_classes=self.n_classes),
+            "cm": ConfusionMatrix(task=task, num_classes=self.n_classes),
         })
 
         return metrics

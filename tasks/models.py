@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import *
 from torchmetrics import MetricCollection
 
-Batch = Dict[str, Tensor]
+Batch = Tuple[Tensor, Dict[str, Tensor]]
 StepOutput = Dict[str, Tensor]
 
 class ConvBlock(nn.Module):
@@ -74,6 +74,8 @@ class BaseModel(L.LightningModule):
         self.val_metrics    = None
         self.test_metrics   = None
 
+        self.samples: Dict[str, Tensor] = {}
+
     def forward(self, x: Tensor) -> Tensor:
         
         return self.model(x)
@@ -87,10 +89,12 @@ class BaseModel(L.LightningModule):
 
         ms = self.train_metrics(outs["y_hat"].detach(), outs["y"].detach())
 
-        self.log_dict({f"train_{k}": v for k, v in ms.items()}, on_step=True, on_epoch=False)
+        # self.log_dict({f"train_{k}": v for k, v in ms.items()}, on_step=True, on_epoch=False)
 
         # Save loss for logging
-        self.log("train_loss", outs["loss"].detach(), on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        # self.log("train_loss", outs["loss"].detach(), on_step=True, on_epoch=False, prog_bar=True, logger=True)
+
+        self.logging_wrapper(batch, outs, outs["loss"].detach(), ms, name="train", on_step=True, on_epoch=True, logger=True)
              
         return outs["loss"]
     
@@ -101,12 +105,15 @@ class BaseModel(L.LightningModule):
         # Detach the outputs to avoid memory leaks
         outs = {k: v.detach() for k, v in outs.items()}
 
+
         ms = self.val_metrics(outs["y_hat"], outs["y"])
 
-        self.log_dict({f"val_{k}": v for k, v in ms.items()}, on_step=False, on_epoch=True)
+        # self.log_dict({f"val_{k}": v for k, v in ms.items()}, on_step=False, on_epoch=True)
 
         # Save loss for logging
-        self.log("val_loss", outs["loss"].detach(), on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("val_loss", outs["loss"].detach(), on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        self.logging_wrapper(batch, outs, outs["loss"].detach(), ms, name="val", on_step=False, on_epoch=True, logger=True)
 
         return outs
     
@@ -116,12 +123,28 @@ class BaseModel(L.LightningModule):
 
         ms = self.test_metrics(outs["y_hat"], outs["y"])
 
-        self.log_dict({f"test_{k}": v for k, v in ms.items()}, on_step=False, on_epoch=True)
+        # self.log_dict({f"test_{k}": v for k, v in ms.items()}, on_step=False, on_epoch=True)
 
         # Save loss for logging
-        self.log("test_loss", outs["loss"].detach(), on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # self.log("test_loss", outs["loss"].detach(), on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        self.logging_wrapper(batch, outs, outs["loss"].detach(), ms, name="test", on_step=False, on_epoch=True, logger=True)
 
         return outs
+        
+    def logging_wrapper(self, batch: Batch, outs: Dict[str, Tensor], loss: Tensor, metrics: Dict[str, Tensor], name: str, **kwargs) -> None:
+
+        self.log(f"{name}_loss", loss, **kwargs)
+
+        cm = metrics.pop("cm", None) # Confusion matrix
+
+        self.log_dict({f"{name}_{k}": v for k, v in metrics.items()}, **kwargs)
+
+        # Randomly sample 4 images from the batch
+        idxs = torch.randint(0, batch[0].shape[0], (4,))
+        self.samples["images"] = batch[0][idxs].detach().cpu()
+        self.samples["y"] = outs["y"][idxs].detach().cpu()
+        self.samples["y_hat"] = outs["y_hat"][idxs].detach().cpu()
     
     def configure_optimizers(self) -> Any:
         
