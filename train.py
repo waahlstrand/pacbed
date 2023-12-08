@@ -69,7 +69,7 @@ def main():
 
 def fit(args: argparse.Namespace):
 
-    name = "_".join([args.name, args.target, args.convergence_angle_index, args.energy_index])
+    name = "_".join([args.name, args.target, str(args.convergence_angle_index), str(args.energy_index)])
 
     # Set the random seed
     L.seed_everything(args.seed)
