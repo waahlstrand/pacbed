@@ -69,16 +69,18 @@ def main():
 
 def fit(args: argparse.Namespace):
 
+    name = "_".join([args.name, args.target, args.convergence_angle_index, args.energy_index])
+
     # Set the random seed
     L.seed_everything(args.seed)
 
     # Create the loggers
     loggers = [
-        CSVLogger(args.logs_root, name=args.name),
+        CSVLogger(args.logs_root, name=name),
     ]
     
     if args.log:
-        loggers += [WandbLogger(name=args.name, project='pacbed-classification')]
+        loggers += [WandbLogger(name=name, project='pacbed-classification')]
         
     # Setup checkpointing
     checkpointing = ModelCheckpoint(
