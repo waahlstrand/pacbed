@@ -79,7 +79,12 @@ def process_multiple_pacbed_from_metadata(
 
 class ExperimentalDataset(Dataset):
 
-    def __init__(self, metadata_path: Path, src_path: Path, target: str = "Phase index") -> None:
+    def __init__(self, 
+                 metadata_path: Path, 
+                 src_path: Path, 
+                 target: str = "Phase index",
+                convergence_angle_index: int | None = None,
+                 energy_index: int | None = None,) -> None:
         super().__init__()
 
         self.metadata_path = metadata_path
@@ -91,6 +96,14 @@ class ExperimentalDataset(Dataset):
 
         # Filter out if target is not in metadata
         self.metadata = self.metadata[self.metadata[target].notna()]
+
+        # Filter out by convergence angle index
+        if convergence_angle_index is not None:
+            self.metadata = self.metadata[self.metadata["Convergence angle index"] == convergence_angle_index]
+
+        # Filter out by energy index
+        if energy_index is not None:
+            self.metadata = self.metadata[self.metadata["Energy index"] == energy_index]
 
     def __len__(self):
         return len(self.metadata)
@@ -291,10 +304,10 @@ class PACBEDDataModule(L.LightningDataModule):
             # Create a fixed test dataset to be used at the end of training
             test_sampler           = RandomSampler(realistic_set, replacement=True, num_samples=self.n_test_samples)
             test_initial_loader    = DataLoader(realistic_set, batch_size=self.batch_size, num_workers=self.n_workers, sampler=test_sampler, pin_memory=True)
-            self.test_set               = InMemoryPACBEDPhaseDataset.from_dataloader(test_initial_loader)
+            self.test_set          = InMemoryPACBEDPhaseDataset.from_dataloader(test_initial_loader)
         
             # Create a test set from experimental data
-            self.experimental_set       = ExperimentalDataset(self.experimental_metadata_path, self.experimental_src_path)
+            self.experimental_set       = ExperimentalDataset(self.experimental_metadata_path, self.experimental_src_path, self.target, self.convergence_angle_index, self.energy_index)
 
         else:
             raise NotImplementedError
