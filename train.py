@@ -21,48 +21,60 @@ def main():
 
     parser.add_argument('--config', '-c', type=str, default='')
 
-    parser.add_argument('--name', type=str, default='')
-    parser.add_argument('--simulated_metadata_file', type=str, default='')
-    parser.add_argument('--simulated_src_path', type=str, default='')
-    parser.add_argument('--experimental_metadata_file', type=str, default='')
-    parser.add_argument('--experimental_src_path', type=str, default='')
-    parser.add_argument('--logs_root', type=str, default='')
-    parser.add_argument('--precision', type=str, default='medium')
-    parser.add_argument('--device', type=str, default='gpu')
-    parser.add_argument('--target', type=str, default='Phase index')
+    parser.add_argument('--name', type=str, default=None)
+    parser.add_argument('--simulated_metadata_file', type=str, default=None)
+    parser.add_argument('--simulated_src_path', type=str, default=None)
+    parser.add_argument('--experimental_metadata_file', type=str, default=None)
+    parser.add_argument('--experimental_src_path', type=str, default=None)
+    parser.add_argument('--logs_root', type=str, default=None)
+    parser.add_argument('--precision', type=str, default=None)
+    parser.add_argument('--device', type=str, default=None)
+    parser.add_argument('--target', type=str, default=None)
 
-    parser.add_argument('--eta', type=float, default=0.8)
-    parser.add_argument('--lr', type=float, default=0.0001)
-    parser.add_argument('--momentum', type=float, default=0.99)
-    parser.add_argument('--weight_decay', type=float, default=0.0001)
-    parser.add_argument('--p_occlusion', type=float, default=0.4)
-    parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--original_size', type=int, default=1024)
-    parser.add_argument('--target_size', type=int, default=256)
-    parser.add_argument('--crop', type=int, default=510)
-    parser.add_argument('--convergence_angle_index', type=int, default=4)
-    parser.add_argument('--energy_index', type=int, default=4)
+    parser.add_argument('--eta', type=float, default=None)
+    parser.add_argument('--lr', type=float, default=None)
+    parser.add_argument('--momentum', type=float, default=None)
+    parser.add_argument('--weight_decay', type=float, default=None)
+    parser.add_argument('--p_occlusion', type=float, default=None)
+    parser.add_argument('--seed', type=int, default=None)
+    parser.add_argument('--original_size', type=int, default=None)
+    parser.add_argument('--target_size', type=int, default=None)
+    parser.add_argument('--crop', type=int, default=None)
+    parser.add_argument('--convergence_angle_index', type=int, default=None)
+    parser.add_argument('--energy_index', type=int, default=None)
 
-    parser.add_argument('--n_epochs', type=int, default=100)
-    parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--n_workers', type=int, default=32)
-    parser.add_argument('--n_train_samples', type=int, default=1000)
-    parser.add_argument('--n_valid_samples', type=int, default=100)
-    parser.add_argument('--n_test_samples', type=int, default=1000)
+    parser.add_argument('--n_epochs', type=int, default=None)
+    parser.add_argument('--batch_size', type=int, default=None)
+    parser.add_argument('--n_workers', type=int, default=None)
+    parser.add_argument('--n_train_samples', type=int, default=None)
+    parser.add_argument('--n_valid_samples', type=int, default=None)
+    parser.add_argument('--n_test_samples', type=int, default=None)
 
-    parser.add_argument('--checkpoint', type=str, default='')
-    parser.add_argument('--debug', type=bool, default=False)
-    parser.add_argument('--log', type=bool, default=False)
+    parser.add_argument('--checkpoint', type=str, default=None)
+    parser.add_argument('--debug', type=bool, default=None)
+    parser.add_argument('--log', type=bool, default=None)
 
-    parser.add_argument('--backbone', type=str, default='resnet50')
-    parser.add_argument('--pretrained', type=bool, default=True)
+    parser.add_argument('--backbone', type=str, default=None)
+    parser.add_argument('--pretrained', type=bool, default=None)
 
     args = parser.parse_args()
 
-    if args.config != '':
+    # If there is a config file, load it
+    if args.config is not None:
         with open(args.config, 'r') as f:
             config = yaml.safe_load(f)
-            args.__dict__.update(config)
+            # args.__dict__.update(config)
+    
+    params = {}
+    for k, v in args.__dict__.items():
+        if v is not None:
+            params[k] = v
+
+    # Add the config to a namespace
+    args = argparse.Namespace(**config)
+
+    # Update the namespace with the command line arguments
+    args.__dict__.update(params)
 
     fit(args)
 
@@ -121,7 +133,7 @@ def fit(args: argparse.Namespace):
         )
     
     # Save last checkpoint
-    trainer.save_checkpoint(f"{args.logs_root}/last.ckpt")
+    trainer.save_checkpoint(f"{loggers[0].log_dir}/last.ckpt")
 
     ################### TEST ###################
     trainer.test(model, dm)
