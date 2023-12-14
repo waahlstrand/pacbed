@@ -91,7 +91,7 @@ def fit(args: argparse.Namespace):
         save_top_k=1,
     )
 
-    plot_callback = PlotImageCallback()
+    # plot_callback = PlotImageCallback()
 
     ################### DATA ###################
     # Create the data module
@@ -108,7 +108,7 @@ def fit(args: argparse.Namespace):
         accelerator             = args.device,
         devices                 = [0],
         logger                  = loggers,
-        callbacks               = [ checkpointing, plot_callback ],
+        callbacks               = [ checkpointing ],
         max_epochs              = args.n_epochs,
         fast_dev_run            = True if args.debug else False,
     )
